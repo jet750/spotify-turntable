@@ -23,12 +23,19 @@ export interface SpotifyTrack {
   isPlaying: boolean;
 }
 
+export interface PlayContextOpts {
+  contextUri?: string; // album/playlist URI to play
+  uris?: string[]; // explicit list of track URIs
+  offsetUri?: string; // start the context at this track URI
+}
+
 export interface SpotifyState {
   isAuthenticated: boolean;
   isSDKReady: boolean;
   isConnected: boolean; // true when this tab is the active Spotify device
   track: SpotifyTrack | null;
   deviceId: string | null;
+  accessToken: string | null;
   error: string | null;
   login: () => void;
   logout: () => void;
@@ -36,6 +43,7 @@ export interface SpotifyState {
   nextTrack: () => Promise<void>;
   prevTrack: () => Promise<void>;
   transferPlayback: () => Promise<void>;
+  playContext: (opts: PlayContextOpts) => Promise<void>;
   seek: (ms: number) => Promise<void>;
 }
 
@@ -45,6 +53,14 @@ const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID as string;
 const REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI as string;
 // Where to land after a successful token exchange. The live turntable lives here.
 const APP_ROUTE = "/live";
+
+// Bump this string ANY TIME you change the SCOPES list below. A stored token is
+// stamped with the version that minted it; on load, a token whose stamp doesn't
+// match SCOPES_VERSION is discarded so the user falls back to CONNECT and
+// re-consents — i.e. bumping this auto-prompts everyone to reconnect and pick up
+// the new scopes. (Adding scopes never upgrades an already-issued token.)
+const SCOPES_VERSION = "2";
+
 const SCOPES = [
   "user-read-currently-playing",
   "user-read-playback-state",
@@ -52,11 +68,18 @@ const SCOPES = [
   "streaming",
   "user-read-email",
   "user-read-private",
+  // Library / browse scopes (added for the BrowsePanel):
+  "playlist-read-private",
+  "playlist-read-collaborative",
+  "user-library-read",
+  "user-top-read",
+  "user-read-recently-played",
 ].join(" ");
 
 const TOKEN_KEY = "spotify_access_token";
 const EXPIRY_KEY = "spotify_token_expiry";
 const VERIFIER_KEY = "spotify_code_verifier";
+const SCOPES_VERSION_KEY = "spotify_scopes_version";
 const POLL_INTERVAL = 3000; // ms between currently-playing polls
 
 // ─── PKCE Helpers ─────────────────────────────────────────────────────────────
@@ -82,12 +105,21 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 function saveToken(token: string, expiresIn: number) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(EXPIRY_KEY, String(Date.now() + expiresIn * 1000));
+  // Stamp the token with the scope set it was minted under (see SCOPES_VERSION).
+  localStorage.setItem(SCOPES_VERSION_KEY, SCOPES_VERSION);
 }
 
 function getStoredToken(): string | null {
   const token = localStorage.getItem(TOKEN_KEY);
   const expiry = localStorage.getItem(EXPIRY_KEY);
   if (!token || !expiry) return null;
+  // Scope-version gate: a token minted before the current scope set is missing
+  // permissions we now need. Drop it (and re-prompt with CONNECT) instead of
+  // limping along with a token that 403s on the new endpoints.
+  if (localStorage.getItem(SCOPES_VERSION_KEY) !== SCOPES_VERSION) {
+    clearToken();
+    return null;
+  }
   if (Date.now() > parseInt(expiry) - 60_000) {
     // Expired or expiring within 60s — clear it
     localStorage.removeItem(TOKEN_KEY);
@@ -101,6 +133,7 @@ function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(EXPIRY_KEY);
   localStorage.removeItem(VERIFIER_KEY);
+  localStorage.removeItem(SCOPES_VERSION_KEY);
 }
 
 // ─── Spotify API Helpers ──────────────────────────────────────────────────────
@@ -336,6 +369,50 @@ export function useSpotify(): SpotifyState {
     });
   }, [token, deviceId]);
 
+  // ── Play a specific album / playlist / track set ──────────────────────────
+  // Targets the SDK device so playback starts ON the turntable. If Spotify
+  // reports no active device (404), we transfer playback to this device once
+  // and retry.
+  const playContext = useCallback(
+    async (opts: PlayContextOpts) => {
+      if (!token) return;
+
+      const body: Record<string, unknown> = {};
+      if (opts.contextUri) {
+        body.context_uri = opts.contextUri;
+        if (opts.offsetUri) body.offset = { uri: opts.offsetUri };
+      } else if (opts.uris) {
+        body.uris = opts.uris;
+      } else {
+        return; // nothing to play
+      }
+
+      const sendPlay = () =>
+        fetch(
+          `https://api.spotify.com/v1/me/player/play${deviceId ? `?device_id=${deviceId}` : ""}`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          }
+        );
+
+      let res = await sendPlay();
+      if (res.status === 404) {
+        // No active device — hand playback to the turntable, then retry once.
+        await transferPlayback();
+        res = await sendPlay();
+      }
+      if (!res.ok && res.status !== 202 && res.status !== 204) {
+        setError(`Couldn't start playback (${res.status})`);
+      }
+    },
+    [token, deviceId, transferPlayback]
+  );
+
   // ── Seek to a position (ms) ───────────────────────────────────────────────
   const seek = useCallback(async (ms: number) => {
     const position = Math.max(0, Math.round(ms));
@@ -355,6 +432,7 @@ export function useSpotify(): SpotifyState {
     isConnected,
     track,
     deviceId,
+    accessToken: token,
     error,
     login,
     logout,
@@ -362,6 +440,7 @@ export function useSpotify(): SpotifyState {
     nextTrack,
     prevTrack,
     transferPlayback,
+    playContext,
     seek,
   };
 }

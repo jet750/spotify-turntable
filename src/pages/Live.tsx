@@ -14,10 +14,17 @@
 
 import { useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
+import BrowsePanel from "../components/BrowsePanel";
+import DeckScaler from "../components/DeckScaler";
+import InfoButtonRow, { InfoItem } from "../components/InfoButtons";
 import { useSpotify } from "../lib/useSpotify";
 
 const PASS = import.meta.env.VITE_STUDIO_PASS;
 const UNLOCK_KEY = "studio_unlocked";
+
+// Horizontal room reserved (in unscaled deck px) for the LIBRARY tab that hangs
+// off the deck's right edge, so it never causes a horizontal scrollbar.
+const TAB_RESERVE = 34;
 
 export default function Live() {
   const spotify = useSpotify();
@@ -28,6 +35,10 @@ export default function Live() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [entry, setEntry] = useState("");
   const [err, setErr] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
+
+  // Browse is live-only: it needs an unlocked page AND a connected account.
+  const canBrowse = unlocked && spotify.isAuthenticated;
 
   const tryUnlock = () => {
     if (entry === PASS) {
@@ -41,24 +52,108 @@ export default function Live() {
     }
   };
 
+  const infoItems: InfoItem[] = [
+    {
+      id: "about",
+      icon: "ⓘ",
+      label: "About",
+      content: (
+        <>
+          <b style={{ color: "#e8c870" }}>Live mode.</b> This turntable is wired to
+          my real Spotify account through the Web&nbsp;Playback&nbsp;SDK — the
+          platter, tonearm and label track whatever&apos;s actually playing. Open{" "}
+          <b style={{ color: "#e8c870" }}>LIBRARY</b> on the right edge to pick an
+          album, playlist or track and it starts right here.
+        </>
+      ),
+    },
+    {
+      id: "access",
+      icon: "🔑",
+      label: "Access",
+      content: (
+        <>
+          Playback runs through a connected Spotify&nbsp;
+          <b style={{ color: "#e8c870" }}>Premium</b> account. Hit{" "}
+          <b style={{ color: "#e8c870" }}>CONNECT</b>, enter the access code, then
+          authorize Spotify — the deck then plays through that account on this
+          device.
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="stage">
-      <TurntableVisual
-        mode="live"
-        locked={!unlocked}
-        track={spotify.track}
-        isAuthenticated={spotify.isAuthenticated}
-        isConnected={spotify.isConnected}
-        error={spotify.error}
-        onTogglePlay={spotify.togglePlay}
-        onSeek={spotify.seek}
-        onPrev={spotify.prevTrack}
-        onNext={spotify.nextTrack}
-        onTransfer={spotify.transferPlayback}
-        onLogin={spotify.login}
-        onLogout={spotify.logout}
-        onUnlockRequest={() => setShowPrompt(true)}
-      />
+      <DeckScaler extraWidth={TAB_RESERVE}>
+        {(scale) => (
+          // 560-wide relative box = the deck; the LIBRARY tab pins to its right
+          // edge and lives INSIDE the scaled layer so it stays attached as the
+          // deck shrinks. (The drawer itself is rendered outside — it's fixed.)
+          <div style={{ position: "relative", display: "flex", width: 560 }}>
+            <TurntableVisual
+              mode="live"
+              scale={scale}
+              locked={!unlocked}
+              track={spotify.track}
+              isAuthenticated={spotify.isAuthenticated}
+              isConnected={spotify.isConnected}
+              error={spotify.error}
+              onTogglePlay={spotify.togglePlay}
+              onSeek={spotify.seek}
+              onPrev={spotify.prevTrack}
+              onNext={spotify.nextTrack}
+              onTransfer={spotify.transferPlayback}
+              onLogin={spotify.login}
+              onLogout={spotify.logout}
+              onUnlockRequest={() => setShowPrompt(true)}
+            />
+
+            {/* LIBRARY: vertical brass tab on the deck's right edge. Toggles the
+                same browseOpen state + BrowsePanel as before. Live + connected. */}
+            {canBrowse && (
+              <button
+                onClick={() => setBrowseOpen((o) => !o)}
+                aria-label="Open your library"
+                aria-expanded={browseOpen}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "100%", // flush against the deck's right edge
+                  transform: "translateY(-50%)",
+                  writingMode: "vertical-rl",
+                  background: "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)",
+                  border: "1px solid #c49a3c",
+                  borderLeft: "none", // merge into the deck's edge
+                  borderRadius: "0 8px 8px 0", // rounded OUTER corners
+                  padding: "16px 7px",
+                  color: "#f0d080",
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: 12,
+                  letterSpacing: "0.22em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  boxShadow: "3px 3px 12px rgba(0,0,0,0.5)",
+                }}
+              >
+                ▤ Library
+              </button>
+            )}
+          </div>
+        )}
+      </DeckScaler>
+
+      <InfoButtonRow items={infoItems} />
+
+      {/* Drawer lives OUTSIDE DeckScaler: it's position:fixed, and a CSS transform
+          on an ancestor would re-anchor it away from the viewport. */}
+      {canBrowse && (
+        <BrowsePanel
+          spotify={spotify}
+          open={browseOpen}
+          onClose={() => setBrowseOpen(false)}
+        />
+      )}
 
       {showPrompt && !unlocked && (
         <div className="gate-overlay" onClick={() => setShowPrompt(false)}>

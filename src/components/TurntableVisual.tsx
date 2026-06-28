@@ -17,6 +17,9 @@ export interface TurntableVisualProps {
   error?: string | null;
   mode?: TurntableMode;
   locked?: boolean;
+  // CSS scale the deck is rendered at (set by DeckScaler). Forwarded to the
+  // tonearm so drag-to-seek converts pointer px correctly. Defaults to 1.
+  scale?: number;
   onTogglePlay: () => void;
   onSeek: (ms: number) => void;
   onNext: () => void;
@@ -188,11 +191,14 @@ interface ControlsProps {
   isAuthenticated: boolean;
   mode: TurntableMode;
   locked: boolean;
+  progressMs: number;
+  durationMs: number;
   onStart: () => void;
   onStop: () => void;
   onCue: () => void;
   onNext: () => void;
   onPrev: () => void;
+  onSeek: (ms: number) => void;
   onTransfer: () => void;
   onLogin: () => void;
   onLogout: () => void;
@@ -217,6 +223,45 @@ function ControlStrip(p: ControlsProps) {
   const running = p.armState !== "parked" && p.armState !== "returning";
   const seekEnabled = isDemo || p.isAuthenticated;
   const canCue = p.armState === "playing" || p.armState === "lifted";
+
+  // Press-and-hold ⏭ to scrub forward; a quick tap skips to the next track.
+  const ff = useRef<{
+    start: number;
+    pos: number;
+    held: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+    interval: ReturnType<typeof setInterval> | null;
+  }>({ start: 0, pos: 0, held: false, timer: null, interval: null });
+
+  const ffDown = () => {
+    if (!seekEnabled) return;
+    const st = ff.current;
+    st.start = Date.now();
+    st.held = false;
+    st.pos = p.progressMs;
+    st.timer = setTimeout(() => {
+      st.held = true;
+      let step = 4000; // ms of song per tick, accelerating
+      st.interval = setInterval(() => {
+        st.pos = st.pos + step;
+        if (p.durationMs) st.pos = Math.min(st.pos, p.durationMs);
+        p.onSeek(st.pos);
+        step = Math.min(step + 1500, 20000);
+        if (p.durationMs && st.pos >= p.durationMs && st.interval) {
+          clearInterval(st.interval);
+          st.interval = null;
+        }
+      }, 120);
+    }, 300);
+  };
+
+  const ffUp = () => {
+    const st = ff.current;
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    if (st.interval) { clearInterval(st.interval); st.interval = null; }
+    if (!st.held) p.onNext(); // short tap = skip track
+    st.held = false;
+  };
 
   let authLabel = "CONNECT";
   let authHandler: () => void = p.onLogin;
@@ -340,7 +385,14 @@ function ControlStrip(p: ControlsProps) {
           </span>
         </button>
 
-        <button onClick={p.onNext} disabled={!seekEnabled} style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
+        <button
+          onPointerDown={ffDown}
+          onPointerUp={ffUp}
+          onPointerLeave={ffUp}
+          disabled={!seekEnabled}
+          title="Tap = next track · hold = fast-forward"
+          style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}
+        >
           ⏭
         </button>
       </div>
@@ -366,8 +418,45 @@ function ControlStrip(p: ControlsProps) {
   );
 }
 
-// ─── Track Info Bar ───────────────────────────────────────────────────────
-function TrackInfo({ track }: { track: SpotifyTrack | null }) {
+// ─── Track Info Bar (with click/drag seek) ────────────────────────────────
+function TrackInfo({
+  track,
+  onSeek,
+  enabled,
+}: {
+  track: SpotifyTrack | null;
+  onSeek?: (ms: number) => void;
+  enabled?: boolean;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const draggingBar = useRef(false);
+  const seekRef = useRef<(clientX: number) => void>(() => {});
+
+  const durationMs = track?.durationMs ?? 0;
+  const seekable = !!onSeek && !!enabled && durationMs > 0;
+  seekRef.current = (clientX: number) => {
+    const el = barRef.current;
+    if (!el || !seekable || !track) return;
+    const rect = el.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onSeek!(frac * track.durationMs);
+  };
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      if (draggingBar.current) seekRef.current(e.clientX);
+    };
+    const up = () => {
+      draggingBar.current = false;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, []);
+
   if (!track) {
     return (
       <div style={{ padding: "8px 20px", background: "#2a1c08", borderTop: "1px solid #3a2808", textAlign: "center" }}>
@@ -377,7 +466,7 @@ function TrackInfo({ track }: { track: SpotifyTrack | null }) {
       </div>
     );
   }
-  const progress = track.durationMs > 0 ? (track.progressMs / track.durationMs) * 100 : 0;
+  const progress = durationMs > 0 ? (track.progressMs / durationMs) * 100 : 0;
   const fmt = (ms: number) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -393,8 +482,19 @@ function TrackInfo({ track }: { track: SpotifyTrack | null }) {
           {fmt(track.progressMs)} / {fmt(track.durationMs)}
         </span>
       </div>
-      <div style={{ height: 3, background: "#3a2808", borderRadius: 2, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #c49a3c, #e8c870)", borderRadius: 2, transition: "width 1s linear" }} />
+      <div
+        ref={barRef}
+        onPointerDown={(e) => {
+          if (!seekable) return;
+          draggingBar.current = true;
+          seekRef.current(e.clientX);
+        }}
+        title={seekable ? "Click or drag to seek" : undefined}
+        style={{ display: "flex", alignItems: "center", height: 12, cursor: seekable ? "pointer" : "default" }}
+      >
+        <div style={{ height: 4, width: "100%", background: "#3a2808", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #c49a3c, #e8c870)", borderRadius: 2, transition: draggingBar.current ? "none" : "width 1s linear" }} />
+        </div>
       </div>
     </div>
   );
@@ -408,6 +508,7 @@ export default function TurntableVisual({
   error,
   mode = "live",
   locked = false,
+  scale = 1,
   onTogglePlay,
   onSeek,
   onNext,
@@ -430,53 +531,48 @@ export default function TurntableVisual({
   };
   const seek01 = (p: number) => onSeek(p * (track?.durationMs ?? 0));
 
-  const arm = useTonearm({ progress01, deckRef, ensurePlay, ensurePause, seek01 });
+  const arm = useTonearm({ progress01, deckRef, scale, ensurePlay, ensurePause, seek01 });
 
-  // ── Platter inertia ──
-  // The platter has mass: rpm eases toward a target instead of snapping. It spins
-  // UP to 33⅓ in ~800ms and COASTS down to 0 in ~3200ms. Because the coast
-  // (3.2s) outlasts the arm's 1.7s return, on STOP the platter keeps turning a
-  // beat or two AFTER the arm has parked. A single always-running rAF loop reads
-  // arm.state through a ref, so it never has to be torn down and re-created.
-  const rotationRef = useRef(0);
+  // ── Platter rotation with inertia: quick spin-up, slow coast to a stop ──
+  // On STOP the motor cuts immediately (state -> returning, not powered) and the
+  // platter coasts down over SPIN_DOWN_MS, which is longer than the arm's ~1.7s
+  // return — so it keeps turning for a beat or two after the arm has parked.
+  const FULL_RPM = 33.333;
+  const SPIN_UP_MS = 800; // time to reach full speed from rest
+  const SPIN_DOWN_MS = 3200; // coast time from full speed to a stop
+
   const rpmRef = useRef(0);
+  const rotationRef = useRef(0);
   const lastFrameRef = useRef(0);
-  const stateRef = useRef<ArmState>(arm.state);
+  const animFrameRef = useRef(0);
+  const stateRef = useRef(arm.state);
+  stateRef.current = arm.state;
   const [rotationDeg, setRotationDeg] = useState(0);
-  const [isSpinning, setIsSpinning] = useState(false);
-
-  // Keep the latest arm state reachable from the rAF loop without re-creating it.
-  useEffect(() => {
-    stateRef.current = arm.state;
-  }, [arm.state]);
+  const [spinning, setSpinning] = useState(false);
 
   useEffect(() => {
-    const FULL_RPM = 33.333;
-    const SPIN_UP = FULL_RPM / 800; // rpm gained per ms → full speed in ~800ms
-    const COAST_DOWN = FULL_RPM / 3200; // rpm shed per ms → stop in ~3200ms
-    let raf = 0;
-    const animate = (t: number) => {
-      const delta = lastFrameRef.current ? Math.min(100, Math.max(0, t - lastFrameRef.current)) : 0;
+    const DEG_PER_MS_PER_RPM = 360 / 60000;
+    const tick = (t: number) => {
+      const delta = lastFrameRef.current ? Math.min(t - lastFrameRef.current, 100) : 0;
       lastFrameRef.current = t;
-
       const s = stateRef.current;
-      const target = s === "cueing" || s === "playing" || s === "lifted" || s === "dragging" ? FULL_RPM : 0;
-      let rpm = rpmRef.current;
-      if (rpm < target) rpm = Math.min(target, rpm + SPIN_UP * delta);
-      else if (rpm > target) rpm = Math.max(target, rpm - COAST_DOWN * delta);
-      rpmRef.current = rpm;
-
-      if (rpm > 0) {
-        rotationRef.current = (rotationRef.current + rpm * (360 / 60000) * delta) % 360;
+      const powered = s === "playing" || s === "cueing" || s === "lifted" || s === "dragging";
+      const target = powered ? FULL_RPM : 0;
+      if (rpmRef.current < target) {
+        rpmRef.current = Math.min(target, rpmRef.current + (FULL_RPM / SPIN_UP_MS) * delta);
+      } else if (rpmRef.current > target) {
+        rpmRef.current = Math.max(0, rpmRef.current - (FULL_RPM / SPIN_DOWN_MS) * delta);
+      }
+      const moving = rpmRef.current > 0.001;
+      if (moving) {
+        rotationRef.current = (rotationRef.current + rpmRef.current * DEG_PER_MS_PER_RPM * delta) % 360;
         setRotationDeg(rotationRef.current);
       }
-      const spinning = rpm > 0;
-      setIsSpinning((prev) => (prev === spinning ? prev : spinning));
-
-      raf = requestAnimationFrame(animate);
+      setSpinning((prev) => (prev !== moving ? moving : prev));
+      animFrameRef.current = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(raf);
+    animFrameRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
   // ── Album art crossfade ──
@@ -556,7 +652,7 @@ export default function TurntableVisual({
               </div>
             )}
             <div style={{ opacity: isFading ? 0 : 1, transition: "opacity 0.6s ease" }}>
-              <VinylRecord albumArt={displayArt} isSpinning={isSpinning} rotationDeg={rotationDeg} />
+              <VinylRecord albumArt={displayArt} isSpinning={spinning} rotationDeg={rotationDeg} />
             </div>
           </div>
         </div>
@@ -592,7 +688,7 @@ export default function TurntableVisual({
         />
       </div>
 
-      <TrackInfo track={track} />
+      <TrackInfo track={track} onSeek={onSeek} enabled={mode === "demo" || isAuthenticated} />
 
       <ControlStrip
         armState={arm.state}
@@ -601,11 +697,14 @@ export default function TurntableVisual({
         isAuthenticated={isAuthenticated}
         mode={mode}
         locked={locked}
+        progressMs={track?.progressMs ?? 0}
+        durationMs={track?.durationMs ?? 0}
         onStart={arm.start}
         onStop={arm.stop}
         onCue={arm.cue}
         onNext={onNext}
         onPrev={onPrev}
+        onSeek={onSeek}
         onTransfer={onTransfer}
         onLogin={onLogin}
         onLogout={onLogout}

@@ -49,6 +49,11 @@ interface UseTonearmArgs {
   progress01: number;
   deckRef: React.RefObject<HTMLDivElement | null>;
   geometry?: Partial<TonearmGeometry>;
+  // CSS scale applied to the deck by the responsive wrapper (DeckScaler). The
+  // geometry constants are authored in UNSCALED deck px, so the drag handler
+  // divides the pointer offset by this to convert screen px -> deck-local px.
+  // Defaults to 1 (no scaling).
+  scale?: number;
   ensurePlay: () => void;
   ensurePause: () => void;
   seek01: (p: number) => void;
@@ -58,6 +63,7 @@ export function useTonearm({
   progress01,
   deckRef,
   geometry,
+  scale = 1,
   ensurePlay,
   ensurePause,
   seek01,
@@ -139,39 +145,73 @@ export function useTonearm({
   }, [ensurePlay, ensurePause]);
 
   // ── drag (grab the arm = lift; release = drop + seek) ───────────────────────
+  // Live snapshot so the drag listeners can bind ONCE (re-registering every render
+  // was dropping pointer events mid-drag).
+  const live = useRef({
+    centerX: g.centerX,
+    centerY: g.centerY,
+    rInner: g.rInner,
+    rOuter: g.rOuter,
+    artOffsetDeg: g.artOffsetDeg,
+    scale,
+    dirForRadius,
+    seek01,
+    ensurePlay,
+  });
+  live.current = {
+    centerX: g.centerX,
+    centerY: g.centerY,
+    rInner: g.rInner,
+    rOuter: g.rOuter,
+    artOffsetDeg: g.artOffsetDeg,
+    scale,
+    dirForRadius,
+    seek01,
+    ensurePlay,
+  };
+  const dragRadiusRef = useRef<number | null>(null);
+
   const onArmPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (state !== "playing" && state !== "lifted") return;
       e.preventDefault();
       dragging.current = true;
+      dragRadiusRef.current = null;
       ensurePause();
       setState("dragging");
     },
     [state, ensurePause]
   );
 
+  // Drag maps the pointer's DISTANCE FROM THE RECORD CENTER to a groove radius, then
+  // to the arm angle. This only depends on the record center + the two radii, so it
+  // stays usable even before the pivot constants are finely tuned.
   useEffect(() => {
     const move = (e: PointerEvent) => {
       if (!dragging.current || !deckRef.current) return;
+      const L = live.current;
       const rect = deckRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const dir = clamp(Math.atan2(y - g.pivotY, x - g.pivotX), dirMin, dirMax);
-      setDragDeg(dir * R2D + g.artOffsetDeg);
+      // getBoundingClientRect() reflects the CSS-scaled deck, so undo the scale to
+      // land back in the unscaled deck-local space the geometry constants live in.
+      const x = (e.clientX - rect.left) / L.scale;
+      const y = (e.clientY - rect.top) / L.scale;
+      const rPointer = Math.hypot(x - L.centerX, y - L.centerY);
+      const r = clamp(rPointer, L.rInner, L.rOuter);
+      dragRadiusRef.current = r;
+      setDragDeg(L.dirForRadius(r) * R2D + L.artOffsetDeg);
     };
     const up = () => {
       if (!dragging.current) return;
       dragging.current = false;
-      setDragDeg((curDeg) => {
-        if (curDeg != null) {
-          const dir = (curDeg - g.artOffsetDeg) * D2R;
-          const r = radiusForDir(dir);
-          seek01(clamp((r - g.rOuter) / (g.rInner - g.rOuter), 0, 1));
-        }
-        return null;
-      });
+      const L = live.current;
+      const r = dragRadiusRef.current;
+      if (r != null) {
+        L.seek01(clamp((r - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
+      }
+      dragRadiusRef.current = null;
+      setDragDeg(null);
       setState("playing");
-      ensurePlay();
+      L.ensurePlay();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -179,7 +219,7 @@ export function useTonearm({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
-  }, [deckRef, g.pivotX, g.pivotY, g.artOffsetDeg, dirMin, dirMax, radiusForDir, g.rOuter, g.rInner, seek01, ensurePlay]);
+  }, [deckRef]);
 
   useEffect(() => () => {
     if (cueTimer.current) clearTimeout(cueTimer.current);
