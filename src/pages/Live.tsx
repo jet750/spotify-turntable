@@ -12,12 +12,16 @@
 //   move the check server-side (Vercel Edge Middleware + a non-VITE secret) — see
 //   the README "Hardening the gate" section.
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
-import BrowsePanel from "../components/BrowsePanel";
 import DeckScaler from "../components/DeckScaler";
 import InfoButtonRow, { InfoItem } from "../components/InfoButtons";
 import { useSpotify } from "../lib/useSpotify";
+
+// Code-split the LIBRARY drawer (Item 8): it + its data hook (useSpotifyLibrary)
+// stay out of the initial bundle and only load on first open. Default export ->
+// React.lazy-compatible.
+const BrowsePanel = lazy(() => import("../components/BrowsePanel"));
 
 const PASS = import.meta.env.VITE_STUDIO_PASS;
 const UNLOCK_KEY = "studio_unlocked";
@@ -36,6 +40,14 @@ export default function Live() {
   const [entry, setEntry] = useState("");
   const [err, setErr] = useState("");
   const [browseOpen, setBrowseOpen] = useState(false);
+  // Stays false until the user first opens the library, which is what triggers the
+  // lazy chunk to load; once true the panel stays mounted so its close animation runs.
+  const [browseRequested, setBrowseRequested] = useState(false);
+
+  const toggleBrowse = () => {
+    setBrowseRequested(true);
+    setBrowseOpen((o) => !o);
+  };
 
   // Browse is live-only: it needs an unlocked page AND a connected account.
   const canBrowse = unlocked && spotify.isAuthenticated;
@@ -113,7 +125,7 @@ export default function Live() {
                 same browseOpen state + BrowsePanel as before. Live + connected. */}
             {canBrowse && (
               <button
-                onClick={() => setBrowseOpen((o) => !o)}
+                onClick={toggleBrowse}
                 aria-label="Open your library"
                 aria-expanded={browseOpen}
                 style={{
@@ -146,13 +158,16 @@ export default function Live() {
       <InfoButtonRow items={infoItems} />
 
       {/* Drawer lives OUTSIDE DeckScaler: it's position:fixed, and a CSS transform
-          on an ancestor would re-anchor it away from the viewport. */}
-      {canBrowse && (
-        <BrowsePanel
-          spotify={spotify}
-          open={browseOpen}
-          onClose={() => setBrowseOpen(false)}
-        />
+          on an ancestor would re-anchor it away from the viewport. Lazy-mounted on
+          first open (Item 8) with a lightweight fallback while the chunk loads. */}
+      {canBrowse && browseRequested && (
+        <Suspense fallback={<BrowseFallback />}>
+          <BrowsePanel
+            spotify={spotify}
+            open={browseOpen}
+            onClose={() => setBrowseOpen(false)}
+          />
+        </Suspense>
       )}
 
       {showPrompt && !unlocked && (
@@ -178,6 +193,39 @@ export default function Live() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Lightweight fallback shown for the brief moment the lazy LIBRARY chunk loads on
+// first open. A thin walnut/brass rail on the right edge, matching the drawer's
+// resting position so the real panel slides in over it without a visual jump.
+function BrowseFallback() {
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "fixed",
+        top: 0,
+        right: 0,
+        height: "100vh",
+        width: 360,
+        maxWidth: "100vw",
+        background: "linear-gradient(160deg, #3e2808 0%, #2a1c08 100%)",
+        borderLeft: "2px solid #c49a3c",
+        boxShadow: "-12px 0 48px rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#a08040",
+        fontFamily: "'Courier New', monospace",
+        fontSize: 12,
+        letterSpacing: "0.2em",
+        textTransform: "uppercase",
+        zIndex: 1000,
+      }}
+    >
+      Loading library…
     </div>
   );
 }
