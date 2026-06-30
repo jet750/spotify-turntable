@@ -307,6 +307,7 @@ function ControlStrip(p: ControlsProps) {
         {!isDemo && (
           <button
             onClick={authHandler}
+            aria-label={p.locked ? "Unlock with access code" : p.isAuthenticated ? "Log out of Spotify" : "Connect Spotify"}
             style={{
               background: "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)",
               border: "1px solid #c49a3c",
@@ -326,6 +327,7 @@ function ControlStrip(p: ControlsProps) {
         {!isDemo && !p.locked && p.isAuthenticated && !p.isConnected && (
           <button
             onClick={p.onTransfer}
+            aria-label="Transfer playback to this device"
             style={{
               background: "transparent",
               border: "1px solid #c49a3c",
@@ -349,6 +351,7 @@ function ControlStrip(p: ControlsProps) {
         <button
           onClick={p.onCue}
           disabled={!canCue}
+          aria-label={p.armState === "lifted" ? "Drop the tonearm" : "Lift the tonearm"}
           title="Cue (lift / drop the arm)"
           style={ctrlBtn({
             border: "1px solid #8a6828",
@@ -363,13 +366,14 @@ function ControlStrip(p: ControlsProps) {
           {p.armState === "lifted" ? "DROP" : "LIFT"}
         </button>
 
-        <button onClick={p.onPrev} disabled={!seekEnabled} style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
+        <button onClick={p.onPrev} disabled={!seekEnabled} aria-label="Previous track" style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
           ⏮
         </button>
 
         <button
           onClick={running ? p.onStop : p.onStart}
           disabled={!seekEnabled}
+          aria-label={running ? "Stop" : "Start"}
           title={running ? "Stop" : "Start"}
           style={{
             width: 44,
@@ -397,6 +401,7 @@ function ControlStrip(p: ControlsProps) {
           onPointerUp={ffUp}
           onPointerLeave={ffUp}
           disabled={!seekEnabled}
+          aria-label="Next track (hold to fast-forward)"
           title="Tap = next track · hold = fast-forward"
           style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}
         >
@@ -495,6 +500,14 @@ function TrackInfo({
       </div>
       <div
         ref={barRef}
+        role="slider"
+        aria-label="Seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.floor(durationMs / 1000)}
+        aria-valuenow={Math.floor(progressMs / 1000)}
+        aria-valuetext={`${fmt(progressMs)} of ${fmt(durationMs)}`}
+        aria-disabled={!seekable}
+        tabIndex={seekable ? 0 : -1}
         onPointerDown={(e) => {
           if (!seekable) return;
           draggingBar.current = true;
@@ -615,6 +628,77 @@ export default function TurntableVisual({
     anchorRef.current = { pos: liveProgressRef.current, t: performance.now() };
     lastSeekRef.current = performance.now();
   }, [arm.state]);
+
+  // ── Keyboard transport (Item 6) ─────────────────────────────────────────────
+  // Space = start/stop · ←/→ = seek · Shift+←/→ or [/] = prev/next. Only when the
+  // page/deck has focus and NOT while typing in a field; a focused transport button
+  // keeps its own Space/Enter activation (no double-fire). The handler reads live
+  // values from a ref so it can bind once instead of per-frame.
+  const running = arm.state !== "parked" && arm.state !== "returning";
+  const seekEnabled = mode === "demo" || isAuthenticated;
+  const SEEK_STEP_MS = 5000; // small keyboard seek step; neutral, tunable
+  const kbRef = useRef<{
+    running: boolean;
+    enabled: boolean;
+    duration: number;
+    pos: () => number;
+    start: () => void;
+    stop: () => void;
+    prev: () => void;
+    next: () => void;
+    seek: (ms: number) => void;
+  }>(null as never);
+  kbRef.current = {
+    running,
+    enabled: seekEnabled,
+    duration: durationMs,
+    pos: () => liveProgressRef.current,
+    start: arm.start,
+    stop: arm.stop,
+    prev: onPrev,
+    next: onNext,
+    seek: seekTo,
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      // Never hijack typing (search box, passphrase, etc.).
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      const k = kbRef.current;
+      if (!k.enabled) return;
+      const onButtonOrLink = tag === "BUTTON" || tag === "A";
+      switch (e.key) {
+        case " ":
+        case "Spacebar": // legacy
+          if (onButtonOrLink) return; // let the focused control activate itself
+          e.preventDefault();
+          (k.running ? k.stop : k.start)();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (e.shiftKey) k.prev();
+          else k.seek(k.pos() - SEEK_STEP_MS);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (e.shiftKey) k.next();
+          else k.seek(Math.min(k.pos() + SEEK_STEP_MS, k.duration || Infinity));
+          break;
+        case "[":
+          e.preventDefault();
+          k.prev();
+          break;
+        case "]":
+          e.preventDefault();
+          k.next();
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // ── Platter rotation with inertia: quick spin-up, slow coast to a stop ──
   // On STOP the motor cuts immediately (state -> returning, not powered) and the
@@ -778,6 +862,9 @@ export default function TurntableVisual({
 
   return (
     <div
+      className="deck-region"
+      role="region"
+      aria-label={`Turntable — ${mode} mode`}
       style={{
         display: "inline-flex",
         flexDirection: "column",
