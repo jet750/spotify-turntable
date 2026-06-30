@@ -421,10 +421,14 @@ function ControlStrip(p: ControlsProps) {
 // ─── Track Info Bar (with click/drag seek) ────────────────────────────────
 function TrackInfo({
   track,
+  progressMs,
   onSeek,
   enabled,
 }: {
   track: SpotifyTrack | null;
+  // Smoothed, locally-extrapolated position (Item 2) — drives the bar + timecode
+  // every frame, instead of the 3s-stepped track.progressMs.
+  progressMs: number;
   onSeek?: (ms: number) => void;
   enabled?: boolean;
 }) {
@@ -466,7 +470,7 @@ function TrackInfo({
       </div>
     );
   }
-  const progress = durationMs > 0 ? (track.progressMs / durationMs) * 100 : 0;
+  const progress = durationMs > 0 ? (progressMs / durationMs) * 100 : 0;
   const fmt = (ms: number) => {
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -479,7 +483,7 @@ function TrackInfo({
           <span style={{ fontSize: "0.55em", color: "#a08040", fontFamily: "'Courier New', monospace", marginLeft: 8 }}>{track.artist}</span>
         </div>
         <span style={{ fontSize: "0.5em", color: "#6a5028", fontFamily: "'Courier New', monospace" }}>
-          {fmt(track.progressMs)} / {fmt(track.durationMs)}
+          {fmt(progressMs)} / {fmt(track.durationMs)}
         </span>
       </div>
       <div
@@ -493,7 +497,10 @@ function TrackInfo({
         style={{ display: "flex", alignItems: "center", height: 12, cursor: seekable ? "pointer" : "default" }}
       >
         <div style={{ height: 4, width: "100%", background: "#3a2808", borderRadius: 2, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #c49a3c, #e8c870)", borderRadius: 2, transition: draggingBar.current ? "none" : "width 1s linear" }} />
+          {/* Width driven directly by the per-frame clock — no CSS transition, which
+              would re-introduce lag on top of the rAF. (Item 4 swaps this to a
+              composited transform: scaleX.) */}
+          <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #c49a3c, #e8c870)", borderRadius: 2 }} />
         </div>
       </div>
     </div>
@@ -520,7 +527,46 @@ export default function TurntableVisual({
 }: TurntableVisualProps) {
   const deckRef = useRef<HTMLDivElement>(null);
   const isPlaying = track?.isPlaying ?? false;
-  const progress01 = track && track.durationMs > 0 ? track.progressMs / track.durationMs : 0;
+  const durationMs = track?.durationMs ?? 0;
+
+  // ── Local progress clock (Item 2) ───────────────────────────────────────────
+  // The player only hands us a fresh progressMs every ~3s (REST poll) or on an SDK
+  // event. Driving the UI straight off that makes the %-bar jump in 3s steps and
+  // desync after a lift/seek. Instead we keep a local anchor {pos, t} and, while
+  // the song is advancing, extrapolate progress every animation frame from it. A
+  // poll / player_state_changed is treated as a CORRECTION that resets the anchor;
+  // a seek / lift / drop / stop sets the anchor immediately so the bar + needle
+  // move with no lag. The actual frame-by-frame advance happens in the platter rAF
+  // loop below (one loop, math only) — see the `advancing` block there.
+  //
+  // After a local seek we briefly defer to the local anchor (SEEK_SETTLE_MS) so an
+  // already-in-flight stale poll can't snap the bar back to the pre-seek position;
+  // polls resume correcting once the player has caught up. Mechanism, not feel —
+  // tune the window if Spotify's echo proves slower.
+  const SEEK_SETTLE_MS = 1500;
+  const anchorRef = useRef({ pos: track?.progressMs ?? 0, t: 0 });
+  const liveProgressRef = useRef(track?.progressMs ?? 0);
+  const lastSeekRef = useRef(-Infinity);
+  const prevAdvancingRef = useRef(false);
+  const [liveProgressMs, setLiveProgressMs] = useState(track?.progressMs ?? 0);
+
+  // Inputs the rAF loop reads each frame (kept live without re-subscribing it).
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const durationRef = useRef(durationMs);
+  durationRef.current = durationMs;
+
+  const progress01 = durationMs > 0 ? Math.min(liveProgressMs / durationMs, 1) : 0;
+
+  // Seek that also moves the local clock instantly, then forwards to the player.
+  const seekTo = (ms: number) => {
+    const clamped = durationMs > 0 ? Math.max(0, Math.min(ms, durationMs)) : Math.max(0, ms);
+    anchorRef.current = { pos: clamped, t: performance.now() };
+    liveProgressRef.current = clamped;
+    lastSeekRef.current = performance.now();
+    setLiveProgressMs(clamped);
+    onSeek(ms);
+  };
 
   // Map the arm's start/pause/seek onto whatever player is wired in.
   const ensurePlay = () => {
@@ -529,9 +575,29 @@ export default function TurntableVisual({
   const ensurePause = () => {
     if (isPlaying) onTogglePlay();
   };
-  const seek01 = (p: number) => onSeek(p * (track?.durationMs ?? 0));
+  const seek01 = (p: number) => seekTo(p * durationMs);
 
   const arm = useTonearm({ progress01, deckRef, scale, isPlaying, ensurePlay, ensurePause, seek01 });
+
+  // Correction: a fresh player/SDK reading re-anchors the local clock — unless a
+  // local seek was just issued, in which case we ride the optimistic anchor until
+  // the player echoes the new position (see SEEK_SETTLE_MS above).
+  useEffect(() => {
+    if (performance.now() - lastSeekRef.current < SEEK_SETTLE_MS) return;
+    const pos = track?.progressMs ?? 0;
+    anchorRef.current = { pos, t: performance.now() };
+    liveProgressRef.current = pos;
+    setLiveProgressMs(pos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track?.id, track?.progressMs, track?.isPlaying, track?.durationMs]);
+
+  // Any arm transition (lift / drop / stop / cue) re-anchors the clock to the
+  // CURRENTLY displayed position so the bar + needle don't snap, and marks it as a
+  // local anchor so the settle window shields it from a stale poll.
+  useEffect(() => {
+    anchorRef.current = { pos: liveProgressRef.current, t: performance.now() };
+    lastSeekRef.current = performance.now();
+  }, [arm.state]);
 
   // ── Platter rotation with inertia: quick spin-up, slow coast to a stop ──
   // On STOP the motor cuts immediately (state -> returning, not powered) and the
@@ -569,6 +635,26 @@ export default function TurntableVisual({
         setRotationDeg(rotationRef.current);
       }
       setSpinning((prev) => (prev !== moving ? moving : prev));
+
+      // ── Local progress clock advance (Item 2) ──
+      // Extrapolate progressMs from the anchor while the song is actually moving.
+      // The anchor is reset by polls (correction) and by seek/lift/drop/stop.
+      const advancing = (s === "playing" || s === "cueing") && isPlayingRef.current;
+      if (advancing && !prevAdvancingRef.current) {
+        // Resume edge (cue-drop or an external resume): re-anchor at the frozen
+        // position so we don't jump forward by the paused interval.
+        anchorRef.current = { pos: liveProgressRef.current, t };
+      }
+      prevAdvancingRef.current = advancing;
+      if (advancing) {
+        const a = anchorRef.current;
+        let live = a.pos + (t - a.t);
+        const dur = durationRef.current;
+        if (dur > 0 && live > dur) live = dur;
+        liveProgressRef.current = live;
+        setLiveProgressMs(live);
+      }
+
       animFrameRef.current = requestAnimationFrame(tick);
     };
     animFrameRef.current = requestAnimationFrame(tick);
@@ -688,7 +774,7 @@ export default function TurntableVisual({
         />
       </div>
 
-      <TrackInfo track={track} onSeek={onSeek} enabled={mode === "demo" || isAuthenticated} />
+      <TrackInfo track={track} progressMs={liveProgressMs} onSeek={seekTo} enabled={mode === "demo" || isAuthenticated} />
 
       <ControlStrip
         armState={arm.state}
@@ -697,14 +783,14 @@ export default function TurntableVisual({
         isAuthenticated={isAuthenticated}
         mode={mode}
         locked={locked}
-        progressMs={track?.progressMs ?? 0}
+        progressMs={liveProgressMs}
         durationMs={track?.durationMs ?? 0}
         onStart={arm.start}
         onStop={arm.stop}
         onCue={arm.cue}
         onNext={onNext}
         onPrev={onPrev}
-        onSeek={onSeek}
+        onSeek={seekTo}
         onTransfer={onTransfer}
         onLogin={onLogin}
         onLogout={onLogout}
