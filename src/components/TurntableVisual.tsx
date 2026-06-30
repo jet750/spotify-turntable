@@ -309,7 +309,9 @@ function ControlStrip(p: ControlsProps) {
             onClick={authHandler}
             aria-label={p.locked ? "Unlock with access code" : p.isAuthenticated ? "Log out of Spotify" : "Connect Spotify"}
             style={{
-              background: "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)",
+              // Darkened from the old #8a6828 top so the #f0d080 label clears WCAG AA
+              // 4.5:1 across the whole button (Item 10).
+              background: "linear-gradient(180deg, #6a4e18 0%, #523a10 100%)",
               border: "1px solid #c49a3c",
               borderRadius: 3,
               padding: "4px 10px",
@@ -333,7 +335,7 @@ function ControlStrip(p: ControlsProps) {
               border: "1px solid #c49a3c",
               borderRadius: 3,
               padding: "4px 8px",
-              color: "#c49a3c",
+              color: "#e0b450",
               fontSize: "0.5em",
               fontFamily: "'Courier New', monospace",
               letterSpacing: "0.1em",
@@ -366,7 +368,7 @@ function ControlStrip(p: ControlsProps) {
           {p.armState === "lifted" ? "DROP" : "LIFT"}
         </button>
 
-        <button onClick={p.onPrev} disabled={!seekEnabled} aria-label="Previous track" style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
+        <button onClick={p.onPrev} disabled={!seekEnabled} aria-label="Previous track" style={ctrlBtn({ color: seekEnabled ? "#e0b450" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
           ⏮
         </button>
 
@@ -403,7 +405,7 @@ function ControlStrip(p: ControlsProps) {
           disabled={!seekEnabled}
           aria-label="Next track (hold to fast-forward)"
           title="Tap = next track · hold = fast-forward"
-          style={ctrlBtn({ color: seekEnabled ? "#d4a843" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}
+          style={ctrlBtn({ color: seekEnabled ? "#e0b450" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}
         >
           ⏭
         </button>
@@ -422,7 +424,7 @@ function ControlStrip(p: ControlsProps) {
         <div style={{ fontSize: "0.5em", color: "#3d2100", fontFamily: "'Courier New', monospace", letterSpacing: "0.15em" }}>
           OB-1974
         </div>
-        <div style={{ fontSize: "0.4em", color: "#5a3800", fontFamily: "'Courier New', monospace", opacity: 0.8 }}>
+        <div style={{ fontSize: "0.4em", color: "#140a00", fontFamily: "'Courier New', monospace" }}>
           {isDemo ? "● DEMO" : p.isConnected ? "● ACTIVE" : p.isAuthenticated ? "○ READY" : "○ OFFLINE"}
         </div>
       </div>
@@ -476,7 +478,7 @@ function TrackInfo({
   if (!track) {
     return (
       <div style={{ padding: "8px 20px", background: "#2a1c08", borderTop: "1px solid #3a2808", textAlign: "center" }}>
-        <span style={{ fontSize: "0.6em", color: "#6a5028", fontFamily: "'Courier New', monospace", letterSpacing: "0.2em" }}>
+        <span style={{ fontSize: "0.6em", color: "#b89a5e", fontFamily: "'Courier New', monospace", letterSpacing: "0.2em" }}>
           NO TRACK LOADED
         </span>
       </div>
@@ -492,9 +494,9 @@ function TrackInfo({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
         <div>
           <span style={{ fontSize: "0.7em", color: "#e8c870", fontFamily: "Georgia, serif", fontWeight: "bold" }}>{track.name}</span>
-          <span style={{ fontSize: "0.55em", color: "#a08040", fontFamily: "'Courier New', monospace", marginLeft: 8 }}>{track.artist}</span>
+          <span style={{ fontSize: "0.55em", color: "#b0905a", fontFamily: "'Courier New', monospace", marginLeft: 8 }}>{track.artist}</span>
         </div>
-        <span style={{ fontSize: "0.5em", color: "#6a5028", fontFamily: "'Courier New', monospace" }}>
+        <span style={{ fontSize: "0.5em", color: "#b89a5e", fontFamily: "'Courier New', monospace" }}>
           {fmt(progressMs)} / {fmt(track.durationMs)}
         </span>
       </div>
