@@ -634,6 +634,25 @@ export default function TurntableVisual({
   const [rotationDeg, setRotationDeg] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
+  // ── prefers-reduced-motion (Item 5) ─────────────────────────────────────────
+  // When the user asks for reduced motion we stop the continuous platter spin and
+  // show a static record. Everything functional — the progress clock, the tonearm
+  // position, all transport controls — keeps working; only the large continuous
+  // motion is suppressed. Read live by the rAF via reducedMotionRef.
+  const [reducedMotion, setReducedMotion] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  const reducedMotionRef = useRef(reducedMotion);
+  reducedMotionRef.current = reducedMotion;
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReducedMotion(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   // ── Animation loop (Item 3: runs ONLY when visible AND there's motion) ──────
   // Halts via cancelAnimationFrame whenever the tab is hidden or the deck is fully
   // idle (platter stopped + clock not advancing), and is re-armed by ensureLoop on
@@ -660,7 +679,9 @@ export default function TurntableVisual({
       lastFrameRef.current = t;
       const s = stateRef.current;
       const powered = s === "playing" || s === "cueing" || s === "lifted" || s === "dragging";
-      const target = powered ? FULL_RPM : 0;
+      // Reduced motion (Item 5): target 0 rpm so the platter coasts to a stop and
+      // stays static, while the clock below keeps advancing (functionality intact).
+      const target = powered && !reducedMotionRef.current ? FULL_RPM : 0;
       if (rpmRef.current < target) {
         rpmRef.current = Math.min(target, rpmRef.current + (FULL_RPM / SPIN_UP_MS) * delta);
       } else if (rpmRef.current > target) {
@@ -715,7 +736,7 @@ export default function TurntableVisual({
   // and play/pause (clock advance). The loop self-terminates once it settles.
   useEffect(() => {
     ensureLoop();
-  }, [arm.state, isPlaying, ensureLoop]);
+  }, [arm.state, isPlaying, reducedMotion, ensureLoop]);
 
   // Pause on tab-hide, resume on tab-show (only if there's motion to render).
   useEffect(() => {
