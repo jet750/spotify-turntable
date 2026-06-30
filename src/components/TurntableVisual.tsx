@@ -531,7 +531,7 @@ export default function TurntableVisual({
   };
   const seek01 = (p: number) => onSeek(p * (track?.durationMs ?? 0));
 
-  const arm = useTonearm({ progress01, deckRef, scale, ensurePlay, ensurePause, seek01 });
+  const arm = useTonearm({ progress01, deckRef, scale, isPlaying, ensurePlay, ensurePause, seek01 });
 
   // ── Platter rotation with inertia: quick spin-up, slow coast to a stop ──
   // On STOP the motor cuts immediately (state -> returning, not powered) and the

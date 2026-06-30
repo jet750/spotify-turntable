@@ -54,6 +54,10 @@ interface UseTonearmArgs {
   // divides the pointer offset by this to convert screen px -> deck-local px.
   // Defaults to 1 (no scaling).
   scale?: number;
+  // Authoritative "audio is actually playing" signal (from the player / SDK).
+  // Used to rehydrate the arm into "playing" when the page loads mid-playback —
+  // see the reconcile effect below. Defaults to false.
+  isPlaying?: boolean;
   ensurePlay: () => void;
   ensurePause: () => void;
   seek01: (p: number) => void;
@@ -64,6 +68,7 @@ export function useTonearm({
   deckRef,
   geometry,
   scale = 1,
+  isPlaying = false,
   ensurePlay,
   ensurePause,
   seek01,
@@ -74,6 +79,10 @@ export function useTonearm({
   const dragging = useRef(false);
   const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const returnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flips true the first time the user touches a transport control. Gates the
+  // load-time rehydration below so it only ever runs before manual control —
+  // it can never fight a STOP/lift the user just performed.
+  const userInteracted = useRef(false);
 
   // ── geometry ──────────────────────────────────────────────────────────────
   const D = Math.hypot(g.centerX - g.pivotX, g.centerY - g.pivotY);
@@ -111,6 +120,7 @@ export function useTonearm({
 
   // ── controls ────────────────────────────────────────────────────────────────
   const start = useCallback(() => {
+    userInteracted.current = true;
     if (returnTimer.current) clearTimeout(returnTimer.current);
     if (cueTimer.current) clearTimeout(cueTimer.current);
     setState("cueing");
@@ -122,6 +132,7 @@ export function useTonearm({
   }, [ensurePlay]);
 
   const stop = useCallback(() => {
+    userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
     ensurePause();
     seek01(0);
@@ -131,6 +142,7 @@ export function useTonearm({
   }, [ensurePause, seek01]);
 
   const cue = useCallback(() => {
+    userInteracted.current = true;
     setState((s) => {
       if (s === "playing") {
         ensurePause();
@@ -174,6 +186,7 @@ export function useTonearm({
   const onArmPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (state !== "playing" && state !== "lifted") return;
+      userInteracted.current = true;
       e.preventDefault();
       dragging.current = true;
       dragRadiusRef.current = null;
@@ -225,6 +238,23 @@ export function useTonearm({
     if (cueTimer.current) clearTimeout(cueTimer.current);
     if (returnTimer.current) clearTimeout(returnTimer.current);
   }, []);
+
+  // ── Load-time rehydration ───────────────────────────────────────────────────
+  // If audio is already playing while the arm is still parked — i.e. the page was
+  // (re)loaded mid-playback, a token was silently restored, or playback was kicked
+  // off from the LIBRARY/another device — drop the arm into "playing" so the deck
+  // isn't visually dead while sound comes out. This is the consumer of the initial
+  // GET /me/player state that useSpotify already fetches on mount.
+  //
+  // It is strictly one-directional (parked -> playing) and never calls
+  // ensurePlay/ensurePause, so it agrees with the SDK player_state_changed path
+  // instead of fighting it. It is also gated to BEFORE the first manual transport
+  // action (userInteracted), which guarantees it can never bounce a STOP/lift the
+  // user just performed back into "playing".
+  useEffect(() => {
+    if (userInteracted.current) return;
+    if (isPlaying && state === "parked") setState("playing");
+  }, [isPlaying, state]);
 
   // ── derived render values ───────────────────────────────────────────────────
   let angleDeg: number;
