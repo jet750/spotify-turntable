@@ -4,7 +4,7 @@
 // (true-arc geometry), lifts in place on CUE, can be grabbed and dragged to seek,
 // and returns slowly to rest on STOP.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpotifyTrack } from "../lib/useSpotify";
 import { useTonearm, ArmState } from "../lib/useTonearm";
 
@@ -611,14 +611,34 @@ export default function TurntableVisual({
   const rotationRef = useRef(0);
   const lastFrameRef = useRef(0);
   const animFrameRef = useRef(0);
+  const runningRef = useRef(false); // is the rAF loop currently scheduled? (Item 3)
   const stateRef = useRef(arm.state);
   stateRef.current = arm.state;
   const [rotationDeg, setRotationDeg] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
-  useEffect(() => {
-    const DEG_PER_MS_PER_RPM = 360 / 60000;
-    const tick = (t: number) => {
+  // ── Animation loop (Item 3: runs ONLY when visible AND there's motion) ──────
+  // Halts via cancelAnimationFrame whenever the tab is hidden or the deck is fully
+  // idle (platter stopped + clock not advancing), and is re-armed by ensureLoop on
+  // visibility return / state change. Audio is never touched — this is the visual
+  // loop only. Saves battery instead of burning a frame every 16ms while parked.
+  const stopLoop = useCallback(() => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    animFrameRef.current = 0;
+    runningRef.current = false;
+    lastFrameRef.current = 0; // reset the delta baseline for a clean restart
+  }, []);
+
+  const tick = useCallback(
+    (t: number) => {
+      // Hidden tab → stop the visual loop entirely (battery). rAF is already
+      // throttled/paused while hidden, but we cancel explicitly so it's provably
+      // not running.
+      if (document.hidden) {
+        stopLoop();
+        return;
+      }
+      const DEG_PER_MS_PER_RPM = 360 / 60000;
       const delta = lastFrameRef.current ? Math.min(t - lastFrameRef.current, 100) : 0;
       lastFrameRef.current = t;
       const s = stateRef.current;
@@ -655,11 +675,43 @@ export default function TurntableVisual({
         setLiveProgressMs(live);
       }
 
-      animFrameRef.current = requestAnimationFrame(tick);
-    };
+      // Keep looping only while something is still moving (platter spinning up /
+      // coasting, or the clock advancing). Otherwise idle out until ensureLoop
+      // wakes us. `rpm < target` covers the spin-up ramp from a standstill.
+      if (rpmRef.current > 0.001 || advancing || rpmRef.current < target) {
+        animFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        stopLoop();
+      }
+    },
+    [FULL_RPM, SPIN_UP_MS, SPIN_DOWN_MS, stopLoop]
+  );
+
+  const ensureLoop = useCallback(() => {
+    if (runningRef.current || document.hidden) return;
+    runningRef.current = true;
+    lastFrameRef.current = 0;
     animFrameRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, []);
+  }, [tick]);
+
+  // Wake the loop whenever motion may be needed: arm transitions (spin up/down),
+  // and play/pause (clock advance). The loop self-terminates once it settles.
+  useEffect(() => {
+    ensureLoop();
+  }, [arm.state, isPlaying, ensureLoop]);
+
+  // Pause on tab-hide, resume on tab-show (only if there's motion to render).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) stopLoop();
+      else ensureLoop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stopLoop();
+    };
+  }, [ensureLoop, stopLoop]);
 
   // ── Album art crossfade ──
   const [displayArt, setDisplayArt] = useState<string | null>(null);
