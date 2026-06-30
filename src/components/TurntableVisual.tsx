@@ -59,6 +59,9 @@ function VinylRecord({
         transition: isSpinning ? "none" : "transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94)",
         display: "block",
         filter: "drop-shadow(0 8px 32px rgba(0,0,0,0.7))",
+        // Promote the spinning platter+label to its own compositor layer so the
+        // per-frame rotation is handled by the GPU, not relayout/repaint (Item 4).
+        willChange: "transform",
       }}
     >
       <defs>
@@ -140,6 +143,9 @@ function Tonearm({
         pointerEvents: "auto",
         cursor: lifted ? "grabbing" : "grab",
         filter: lifted ? "drop-shadow(0 10px 10px rgba(0,0,0,0.55))" : "drop-shadow(0 3px 4px rgba(0,0,0,0.4))",
+        // The tonearm is its own compositor layer (Item 4) — the rotation below is
+        // the per-frame hot path now that it tracks the progress clock.
+        willChange: "transform",
       }}
       onPointerDown={onPointerDown}
     >
@@ -150,6 +156,7 @@ function Tonearm({
           transformOrigin: "118px 38px",
           transform: `rotate(${angleDeg}deg)`,
           transition: `transform ${transitionMs}ms cubic-bezier(0.4,0,0.2,1)`,
+          willChange: "transform",
         }}
       >
         <svg width="140" height="260" viewBox="0 0 140 260" overflow="visible">
@@ -497,10 +504,20 @@ function TrackInfo({
         style={{ display: "flex", alignItems: "center", height: 12, cursor: seekable ? "pointer" : "default" }}
       >
         <div style={{ height: 4, width: "100%", background: "#3a2808", borderRadius: 2, overflow: "hidden" }}>
-          {/* Width driven directly by the per-frame clock — no CSS transition, which
-              would re-introduce lag on top of the rAF. (Item 4 swaps this to a
-              composited transform: scaleX.) */}
-          <div style={{ height: "100%", width: `${progress}%`, background: "linear-gradient(90deg, #c49a3c, #e8c870)", borderRadius: 2 }} />
+          {/* Fill driven directly by the per-frame clock via a composited
+              transform: scaleX (Item 4) — no per-frame width/layout, no CSS
+              transition (the rAF already updates it every frame). The track's
+              overflow:hidden + border-radius round the visible ends. */}
+          <div
+            style={{
+              height: "100%",
+              width: "100%",
+              transformOrigin: "left center",
+              transform: `scaleX(${Math.max(0, Math.min(progress / 100, 1))})`,
+              background: "linear-gradient(90deg, #c49a3c, #e8c870)",
+              willChange: "transform",
+            }}
+          />
         </div>
       </div>
     </div>
