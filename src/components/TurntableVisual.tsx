@@ -637,13 +637,17 @@ export default function TurntableVisual({
   const running = arm.state !== "parked" && arm.state !== "returning";
   const seekEnabled = mode === "demo" || isAuthenticated;
   const SEEK_STEP_MS = 5000; // small keyboard seek step; neutral, tunable
+  // Live transport snapshot, read by both the keyboard handler (Item 6) and the
+  // Media Session handlers (Item 7) so each binds its listeners once.
   const kbRef = useRef<{
     running: boolean;
     enabled: boolean;
+    isPlaying: boolean;
     duration: number;
     pos: () => number;
     start: () => void;
     stop: () => void;
+    togglePlay: () => void;
     prev: () => void;
     next: () => void;
     seek: (ms: number) => void;
@@ -651,10 +655,12 @@ export default function TurntableVisual({
   kbRef.current = {
     running,
     enabled: seekEnabled,
+    isPlaying,
     duration: durationMs,
     pos: () => liveProgressRef.current,
     start: arm.start,
     stop: arm.stop,
+    togglePlay: onTogglePlay,
     prev: onPrev,
     next: onNext,
     seek: seekTo,
@@ -699,6 +705,76 @@ export default function TurntableVisual({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+
+  // ── Media Session API (Item 7) ──────────────────────────────────────────────
+  // Action handlers (laptop media keys + the OS now-playing widget) mapped to the
+  // deck's transport. Bound once; they read the live snapshot in kbRef.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    const actions: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => { const k = kbRef.current; if (!k.running) k.start(); else if (!k.isPlaying) k.togglePlay(); }],
+      ["pause", () => { const k = kbRef.current; if (k.isPlaying) k.togglePlay(); }],
+      ["previoustrack", () => kbRef.current.prev()],
+      ["nexttrack", () => kbRef.current.next()],
+      ["stop", () => kbRef.current.stop()],
+      ["seekto", (d) => { if (typeof d.seekTime === "number") kbRef.current.seek(d.seekTime * 1000); }],
+    ];
+    for (const [action, handler] of actions) {
+      // Some browsers don't support every action — setting an unsupported one
+      // throws, so guard each individually.
+      try {
+        ms.setActionHandler(action, handler);
+      } catch {
+        /* unsupported action — ignore */
+      }
+    }
+    return () => {
+      for (const [action] of actions) {
+        try {
+          ms.setActionHandler(action, null);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, []);
+
+  // Metadata follows the current track (title / artist / album / artwork).
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || typeof window.MediaMetadata === "undefined") return;
+    if (!track) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    navigator.mediaSession.metadata = new window.MediaMetadata({
+      title: track.name,
+      artist: track.artist,
+      album: track.album,
+      artwork: track.albumArt
+        ? [{ src: track.albumArt, sizes: "640x640", type: "image/jpeg" }]
+        : [],
+    });
+  }, [track?.id, track?.name, track?.artist, track?.album, track?.albumArt]);
+
+  // Keep the OS widget's play/pause state + scrubber in sync (poll cadence is fine
+  // for the widget — no need to push it every frame).
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    ms.playbackState = !track ? "none" : track.isPlaying ? "playing" : "paused";
+    try {
+      if (track && track.durationMs > 0 && typeof ms.setPositionState === "function") {
+        ms.setPositionState({
+          duration: track.durationMs / 1000,
+          position: Math.min(Math.max(track.progressMs, 0), track.durationMs) / 1000,
+          playbackRate: 1,
+        });
+      }
+    } catch {
+      /* setPositionState can throw on bad values — non-fatal */
+    }
+  }, [track?.isPlaying, track?.progressMs, track?.durationMs, track?.id]);
 
   // ── Platter rotation with inertia: quick spin-up, slow coast to a stop ──
   // On STOP the motor cuts immediately (state -> returning, not powered) and the
