@@ -112,22 +112,27 @@ function VinylRecord({
   );
 }
 
-// ─── Tonearm SVG (positioned at the pivot; rotated by the state machine) ────
+// ─── Tonearm SVG (positioned at the pivot; rotated by the spring) ───────────
+// The swing angle is spring-integrated per frame (Item 2), so the rotation has
+// NO CSS transition — only the vertical lift (translateY) keeps an easing.
 function Tonearm({
   angleDeg,
-  transitionMs,
   lifted,
   pivotX,
   pivotY,
   onPointerDown,
 }: {
   angleDeg: number;
-  transitionMs: number;
   lifted: boolean;
   pivotX: number;
   pivotY: number;
   onPointerDown: (e: React.PointerEvent) => void;
 }) {
+  // FEEL: tune by eye — vertical needle lift (px) and its raise/drop easing (ms).
+  // The DROP time is the audible "needle meets record" moment (Items 2/3).
+  const LIFT_PX = 5;
+  const LIFT_RAISE_MS = 180;
+  const LIFT_DROP_MS = 220;
   // Local pivot inside the artwork box is (118, 38); place that at (pivotX,pivotY).
   return (
     <div
@@ -137,8 +142,8 @@ function Tonearm({
         top: pivotY - 38,
         width: 140,
         height: 260,
-        transform: `translateY(${lifted ? -5 : 0}px)`,
-        transition: `transform ${lifted ? 180 : 220}ms ease`,
+        transform: `translateY(${lifted ? -LIFT_PX : 0}px)`,
+        transition: `transform ${lifted ? LIFT_RAISE_MS : LIFT_DROP_MS}ms ease`,
         zIndex: 20,
         pointerEvents: "auto",
         cursor: lifted ? "grabbing" : "grab",
@@ -155,7 +160,7 @@ function Tonearm({
           height: 260,
           transformOrigin: "118px 38px",
           transform: `rotate(${angleDeg}deg)`,
-          transition: `transform ${transitionMs}ms cubic-bezier(0.4,0,0.2,1)`,
+          transition: "none", // spring-driven per frame (Item 2)
           willChange: "transform",
         }}
       >
@@ -591,6 +596,9 @@ export default function TurntableVisual({
   const progress01 = durationMs > 0 ? Math.min(liveProgressMs / durationMs, 1) : 0;
 
   // Seek that also moves the local clock instantly, then forwards to the player.
+  // Wakes the animation loop (via ref — ensureLoop is defined below) so the arm
+  // spring can glide to the new groove radius even if the deck was idle.
+  const ensureLoopRef = useRef<() => void>(() => {});
   const seekTo = (ms: number) => {
     const clamped = durationMs > 0 ? Math.max(0, Math.min(ms, durationMs)) : Math.max(0, ms);
     anchorRef.current = { pos: clamped, t: performance.now() };
@@ -598,6 +606,7 @@ export default function TurntableVisual({
     lastSeekRef.current = performance.now();
     setLiveProgressMs(clamped);
     onSeek(ms);
+    ensureLoopRef.current();
   };
 
   // Map the arm's start/pause/seek onto whatever player is wired in.
@@ -793,6 +802,10 @@ export default function TurntableVisual({
   const runningRef = useRef(false); // is the rAF loop currently scheduled? (Item 3)
   const stateRef = useRef(arm.state);
   stateRef.current = arm.state;
+  // The tonearm spring (Item 2) is stepped from THIS loop, so arm + platter +
+  // clock all land in one render per frame. Ref-forwarded because tick binds once.
+  const armStepRef = useRef(arm.step);
+  armStepRef.current = arm.step;
   const [rotationDeg, setRotationDeg] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
@@ -875,10 +888,15 @@ export default function TurntableVisual({
         setLiveProgressMs(live);
       }
 
+      // ── Tonearm spring step (fable Item 2) ──
+      // Integrates the arm toward its target; batched into this frame's render.
+      const armMoving = armStepRef.current(delta);
+
       // Keep looping only while something is still moving (platter spinning up /
-      // coasting, or the clock advancing). Otherwise idle out until ensureLoop
-      // wakes us. `rpm < target` covers the spin-up ramp from a standstill.
-      if (rpmRef.current > 0.001 || advancing || rpmRef.current < target) {
+      // coasting, the clock advancing, or the arm mid-swing/settle). Otherwise
+      // idle out until ensureLoop wakes us. `rpm < target` covers the spin-up
+      // ramp from a standstill.
+      if (rpmRef.current > 0.001 || advancing || rpmRef.current < target || armMoving) {
         animFrameRef.current = requestAnimationFrame(tick);
       } else {
         stopLoop();
@@ -893,6 +911,7 @@ export default function TurntableVisual({
     lastFrameRef.current = 0;
     animFrameRef.current = requestAnimationFrame(tick);
   }, [tick]);
+  ensureLoopRef.current = ensureLoop;
 
   // Wake the loop whenever motion may be needed: arm transitions (spin up/down),
   // and play/pause (clock advance). The loop self-terminates once it settles.
@@ -1023,7 +1042,6 @@ export default function TurntableVisual({
             as the transport buttons — a locked/disconnected deck has a dead arm. */}
         <Tonearm
           angleDeg={arm.angleDeg}
-          transitionMs={arm.transitionMs}
           lifted={arm.lifted}
           pivotX={430}
           pivotY={70}

@@ -12,6 +12,14 @@
 // radius; let go off the record (past the outer edge, or back on the rest) and
 // the platter coasts down and playback stops. START/STOP remain as backups.
 //
+// MOTION (Item 2): the arm is driven by a damped spring, not CSS transitions.
+// Every render computes a TARGET angle from the state machine; the host's rAF
+// loop calls `step(dt)` each frame, which integrates the spring toward the
+// target (semi-implicit Euler). Cueing and drops are slightly underdamped, so
+// the arm overshoots a hair and settles — a real needle-drop settle. Dragging
+// bypasses the spring (1:1 follow) but records velocity, so a release hands the
+// throw straight into the settle. All motion is transform-only.
+//
 // GEOMETRY: all coordinates are in the pixel space of the deck element you attach
 // `deckRef` to (its top-left = 0,0). The six constants in DEFAULT_GEOMETRY are the
 // only things you should need to nudge in the browser to make the needle land on
@@ -21,14 +29,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // ─── FEEL constants — tune by eye ────────────────────────────────────────────
 // FEEL: tune by eye — arm timing + drop tolerances, all in one place.
-const CUE_MS = 900;             // arm swing time on START (auto-cue)
-const RETURN_MS = 1700;         // arm return-to-rest time (STOP / off-record release)
-const PARK_TRANSITION_MS = 1600; // CSS transition when settling back on the rest
-const PLAYING_TRANSITION_MS = 220; // arm easing while tracking the groove
-const LIFTED_TRANSITION_MS = 300;  // arm easing while lifted in place
+const CUE_FALLBACK_MS = 2600;   // hard cap on a cue swing: if the spring hasn't landed by now (hidden tab), force it
 // How far past the outer groove (in deck px) a release still counts as landing
 // ON the record. Beyond this — or on the rest — the drop is a "take it off".
 const DROP_EDGE_SLOP_PX = 14;
+
+// FEEL: tune by eye — spring feel per phase. `stiffness` is the pull toward the
+// target (1/s²), `damping` bleeds velocity (1/s). Damping ratio
+// ζ = damping / (2·√stiffness): below 1 the arm overshoots and settles
+// (needle-drop), at/above 1 it glides in without bounce.
+const SPRING_CUE = { stiffness: 36, damping: 8.5 };   // START auto-cue swing: weighted, lands with a slight overshoot (ζ≈0.71)
+const SPRING_DROP = { stiffness: 60, damping: 9.5 };  // needle drop / drag release: quicker, visibly settles (ζ≈0.61)
+const SPRING_RETURN = { stiffness: 9, damping: 7.5 }; // STOP / off-record return: heavy, no bounce (ζ≈1.25)
+const SPRING_TRACK = { stiffness: 160, damping: 26 }; // groove tracking + seek glides once settled (ζ≈1.03)
+const DROP_NUDGE_DEG_PER_S = 5; // tiny impulse on a DROP-button drop so even a zero-distance drop micro-settles
+const LAND_EPS_DEG = 0.6;    // within this of the groove mid-cue = the stylus has touched down
+const SETTLE_EPS_DEG = 0.02; // spring counts as at-rest under this error…
+const SETTLE_EPS_VEL = 0.05; // …and this angular velocity (deg/s)
+const MAX_DT_MS = 50; // clamp integrator steps after tab-jank so the spring can't explode
 
 export interface TonearmGeometry {
   pivotX: number;   // tonearm pivot, deck-space px
@@ -93,10 +111,8 @@ export function useTonearm({
 }: UseTonearmArgs) {
   const g = { ...DEFAULT_GEOMETRY, ...geometry };
   const [state, setState] = useState<ArmState>("parked");
-  const [dragDeg, setDragDeg] = useState<number | null>(null);
   const dragging = useRef(false);
   const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const returnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Flips true the first time the user touches a transport control. Gates the
   // load-time rehydration below so it only ever runs before manual control —
   // it can never fight a STOP/lift the user just performed.
@@ -131,41 +147,138 @@ export function useTonearm({
     [dirForRadius, g.rOuter, g.rInner, g.artOffsetDeg]
   );
 
-  const dirA = dirForRadius(g.rOuter);
-  const dirB = dirForRadius(g.rInner);
-  const dirMin = Math.min(dirA, dirB);
-  const dirMax = Math.max(dirA, dirB);
-
   // Groove radius the stylus sits at when the arm is on its rest. Anchors the
   // outer end of the drag range so a grabbed-from-rest arm tracks the pointer
   // all the way from the rest to the record instead of snapping on-groove.
   const parkRadius = radiusForDir((g.parkDeg - g.artOffsetDeg) * D2R);
 
+  // ── spring integrator (Item 2) ──────────────────────────────────────────────
+  // The rendered angle lives here; the state machine only moves the TARGET.
+  const [animAngle, setAnimAngle] = useState<number>(() => g.parkDeg);
+  const angleRef = useRef(animAngle);
+  const velRef = useRef(0);
+  const targetRef = useRef(animAngle);
+  const springRef = useRef(SPRING_RETURN);
+  const stateRef = useRef<ArmState>(state);
+  stateRef.current = state;
+  const dragDegRef = useRef<number | null>(null);
+
+  // Target angle for the current state — recomputed every render so it tracks
+  // progress (the needle's slow sweep) and geometry live.
+  targetRef.current =
+    state === "parked" || state === "returning"
+      ? g.parkDeg
+      : state === "dragging"
+      ? dragDegRef.current ?? angleRef.current
+      : displayForProgress(progress01);
+
+  // Pick the spring for each phase as we enter it. A drop lands on SPRING_DROP
+  // (bouncy settle) and is stiffened to SPRING_TRACK by step() once at rest, so
+  // in-play seeks glide without wobble.
+  useEffect(() => {
+    switch (state) {
+      case "cueing":
+        springRef.current = SPRING_CUE;
+        break;
+      case "playing":
+        springRef.current = SPRING_DROP;
+        break;
+      case "returning":
+      case "parked":
+        springRef.current = SPRING_RETURN;
+        break;
+      case "lifted":
+        springRef.current = SPRING_TRACK;
+        break;
+      // dragging: 1:1 follow, no spring
+    }
+  }, [state]);
+
+  // The stylus has touched down at the end of a cue swing: cueing -> playing.
+  // (Item 3/4 hook point: this is the exact "needle meets record" moment.)
+  const landNow = useCallback(() => {
+    if (cueTimer.current) {
+      clearTimeout(cueTimer.current);
+      cueTimer.current = null;
+    }
+    setState((s) => (s === "cueing" ? "playing" : s));
+  }, []);
+
+  // One integrator step. Called by the host's rAF loop (TurntableVisual's tick)
+  // so the arm, platter and progress clock all update in ONE render per frame.
+  // Returns true while the arm still needs frames (unsettled or held).
+  const step = useCallback(
+    (dtMs: number): boolean => {
+      const s = stateRef.current;
+      const dt = Math.min(dtMs, MAX_DT_MS) / 1000;
+      if (s === "dragging") {
+        // 1:1 pointer follow; record velocity so a release inherits the throw.
+        const dd = dragDegRef.current;
+        if (dd != null && dd !== angleRef.current) {
+          if (dt > 0) velRef.current = (dd - angleRef.current) / dt;
+          angleRef.current = dd;
+          setAnimAngle(dd);
+        }
+        return true; // held: keep frames coming
+      }
+      const target = targetRef.current;
+      const err = target - angleRef.current;
+      if (Math.abs(err) < SETTLE_EPS_DEG && Math.abs(velRef.current) < SETTLE_EPS_VEL) {
+        // At rest: snap the sub-epsilon remainder so tracking is exact, and
+        // stiffen a finished drop into groove-tracking mode.
+        if (angleRef.current !== target) {
+          angleRef.current = target;
+          setAnimAngle(target);
+        }
+        velRef.current = 0;
+        if (s === "playing") springRef.current = SPRING_TRACK;
+        if (s === "returning") setState("parked");
+        return false;
+      }
+      if (dt > 0) {
+        const { stiffness, damping } = springRef.current;
+        // Semi-implicit Euler — stable at display rates for these constants.
+        velRef.current += (err * stiffness - velRef.current * damping) * dt;
+        angleRef.current += velRef.current * dt;
+        setAnimAngle(angleRef.current);
+        if (s === "cueing") {
+          // Landing = first touch of the groove: either within LAND_EPS_DEG or
+          // the swing crossed the target (overshoot begins).
+          const newErr = target - angleRef.current;
+          if (Math.abs(newErr) < LAND_EPS_DEG || err > 0 !== newErr > 0) landNow();
+        }
+      }
+      return true;
+    },
+    [landNow]
+  );
+
   // ── controls ────────────────────────────────────────────────────────────────
   const start = useCallback(() => {
     userInteracted.current = true;
-    if (returnTimer.current) clearTimeout(returnTimer.current);
     if (cueTimer.current) clearTimeout(cueTimer.current);
     setState("cueing");
     ensurePlay();
-    cueTimer.current = setTimeout(
-      () => setState((s) => (s === "cueing" ? "playing" : s)),
-      CUE_MS
-    );
-  }, [ensurePlay]);
+    // Fallback only: the spring's landing detection normally ends the cue. This
+    // catches a hidden tab (rAF halted) so the deck can't stick mid-cue forever.
+    cueTimer.current = setTimeout(landNow, CUE_FALLBACK_MS);
+  }, [ensurePlay, landNow]);
 
   const stop = useCallback(() => {
     userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
     ensurePause();
     seek01(0);
-    setState("returning");
-    if (returnTimer.current) clearTimeout(returnTimer.current);
-    returnTimer.current = setTimeout(() => setState("parked"), RETURN_MS);
+    setState("returning"); // spring carries it home; step() parks it on settle
   }, [ensurePause, seek01]);
 
   const cue = useCallback(() => {
     userInteracted.current = true;
+    if (state === "lifted") {
+      // A zero-distance drop: give the spring a nudge so the needle still
+      // visibly micro-settles instead of freezing in place.
+      velRef.current += DROP_NUDGE_DEG_PER_S;
+    }
     setState((s) => {
       if (s === "playing") {
         ensurePause();
@@ -177,7 +290,7 @@ export function useTonearm({
       }
       return s;
     });
-  }, [ensurePlay, ensurePause]);
+  }, [state, ensurePlay, ensurePause]);
 
   // ── drag (grab the arm = lift; release = drop-to-play or take-it-off) ───────
   // Live snapshot so the drag listeners can bind ONCE (re-registering every render
@@ -220,24 +333,19 @@ export function useTonearm({
       userInteracted.current = true;
       e.preventDefault();
       if (cueTimer.current) clearTimeout(cueTimer.current);
-      if (returnTimer.current) clearTimeout(returnTimer.current); // don't let a pending park fire mid-drag
       dragging.current = true;
-      if (state === "parked" || state === "returning") {
-        // Seed the drag at the rest position so the arm follows the hand from
-        // the rest instead of snapping onto the groove before the pointer moves.
-        dragRadiusRef.current = live.current.parkRadius;
-        setDragDeg(g.parkDeg);
-      } else {
-        // Grabbed off the groove: seed at the current progress radius so a
-        // no-move release drops it right back where it was.
-        const r = g.rOuter + (g.rInner - g.rOuter) * clamp(progress01, 0, 1);
-        dragRadiusRef.current = r;
-        setDragDeg(dirForRadius(r) * R2D + g.artOffsetDeg);
-      }
+      // Seed the drag wherever the spring currently has the arm (mid-return
+      // catches included) so there's no snap on grab; the raw radius decides
+      // on- vs off-record if released before any movement.
+      dragDegRef.current = angleRef.current;
+      dragRadiusRef.current =
+        state === "parked" || state === "returning"
+          ? live.current.parkRadius
+          : g.rOuter + (g.rInner - g.rOuter) * clamp(progress01, 0, 1);
       ensurePause();
       setState("dragging");
     },
-    [state, ensurePause, progress01, dirForRadius, g.parkDeg, g.rOuter, g.rInner, g.artOffsetDeg]
+    [state, ensurePause, progress01, g.rOuter, g.rInner]
   );
 
   // Drag maps the pointer's DISTANCE FROM THE RECORD CENTER to a groove radius, then
@@ -257,7 +365,8 @@ export function useTonearm({
       // only the displayed angle is clamped, to the label⟷rest swing range.
       dragRadiusRef.current = rPointer;
       const rDisplay = clamp(rPointer, L.rInner, L.parkRadius);
-      setDragDeg(L.dirForRadius(rDisplay) * R2D + L.artOffsetDeg);
+      // Written to the ref only — the spring's step() renders it next frame.
+      dragDegRef.current = L.dirForRadius(rDisplay) * R2D + L.artOffsetDeg;
     };
     const up = () => {
       if (!dragging.current) return;
@@ -265,7 +374,7 @@ export function useTonearm({
       const L = live.current;
       const r = dragRadiusRef.current;
       dragRadiusRef.current = null;
-      setDragDeg(null);
+      dragDegRef.current = null;
       if (r != null && r <= L.rOuter + DROP_EDGE_SLOP_PX) {
         // Landed ON the record: that groove radius IS the playback position.
         L.seek01(clamp((clamp(r, L.rInner, L.rOuter) - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
@@ -277,9 +386,7 @@ export function useTonearm({
         // returns while the platter coasts down. Unlike STOP this does NOT reset
         // to 0: lifting the record off shouldn't lose your place.
         L.ensurePause();
-        setState("returning");
-        if (returnTimer.current) clearTimeout(returnTimer.current);
-        returnTimer.current = setTimeout(() => setState("parked"), RETURN_MS);
+        setState("returning"); // spring carries it home; step() parks it on settle
       }
     };
     window.addEventListener("pointermove", move);
@@ -292,7 +399,6 @@ export function useTonearm({
 
   useEffect(() => () => {
     if (cueTimer.current) clearTimeout(cueTimer.current);
-    if (returnTimer.current) clearTimeout(returnTimer.current);
   }, []);
 
   // ── Load-time rehydration ───────────────────────────────────────────────────
@@ -313,25 +419,20 @@ export function useTonearm({
   }, [isPlaying, state]);
 
   // ── derived render values ───────────────────────────────────────────────────
-  let angleDeg: number;
-  let transitionMs: number;
-  if (state === "dragging" && dragDeg != null) {
-    angleDeg = dragDeg;
-    transitionMs = 0;
-  } else if (state === "parked" || state === "returning") {
-    angleDeg = g.parkDeg;
-    transitionMs = PARK_TRANSITION_MS;
-  } else if (state === "cueing") {
-    angleDeg = displayForProgress(progress01);
-    transitionMs = CUE_MS;
-  } else {
-    // playing | lifted
-    angleDeg = displayForProgress(progress01);
-    transitionMs = state === "lifted" ? LIFTED_TRANSITION_MS : PLAYING_TRANSITION_MS;
-  }
-
-  const lifted = state === "lifted" || state === "dragging";
+  // The spring owns the angle; "lifted" now includes the cue swing, so the arm
+  // rises for the whole approach and the translateY drop lands WITH the audio.
+  const lifted = state === "lifted" || state === "dragging" || state === "cueing";
   const motorOn = state !== "parked"; // platter spins through lift/drag/return
 
-  return { state, angleDeg, transitionMs, lifted, motorOn, start, stop, cue, onArmPointerDown };
+  return {
+    state,
+    angleDeg: animAngle,
+    lifted,
+    motorOn,
+    start,
+    stop,
+    cue,
+    step,
+    onArmPointerDown,
+  };
 }
