@@ -68,6 +68,7 @@ export default function Home() {
               isConnected={false}
               onTogglePlay={demo.toggle}
               onSeek={demo.seek}
+              onSetPlaybackRate={demo.setRate}
               onPrev={demo.prev}
               onNext={demo.next}
               onTransfer={noop}

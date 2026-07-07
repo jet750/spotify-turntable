@@ -18,6 +18,9 @@ export interface DemoPlayer {
   seek: (ms: number) => void;
   play: () => void;
   pause: () => void;
+  // True playback-rate change (45 RPM Easter egg, Item 6). Pitch shifts with
+  // speed — preservesPitch is disabled — exactly like real vinyl.
+  setRate: (rate: number) => void;
 }
 
 function shuffle(n: number): number[] {
@@ -165,5 +168,20 @@ export function useDemoPlayer(): DemoPlayer {
     setIsPlaying(false);
   }, []);
 
-  return { track, toggle, next, prev, seek, play, pause };
+  // 45 RPM Easter egg (Item 6): a real HTMLMediaElement rate change, with pitch
+  // following speed (vinyl physics, not a time-stretch). defaultPlaybackRate is
+  // set too so the rate survives the load() of the next track.
+  const setRate = useCallback((rate: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.defaultPlaybackRate = rate;
+    audio.playbackRate = rate;
+    try {
+      (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false;
+    } catch {
+      /* older engines: pitch-corrected rate change is still better than nothing */
+    }
+  }, []);
+
+  return { track, toggle, next, prev, seek, play, pause, setRate };
 }

@@ -11,6 +11,15 @@ import { useVinylNoise } from "../lib/useVinylNoise";
 
 export type TurntableMode = "live" | "demo";
 
+// ─── FEEL constants — tune by eye ────────────────────────────────────────────
+// FEEL: tune by eye — platter speeds + inertia. RPM_45 / RPM_33 is also the
+// audio playbackRate handed to onSetPlaybackRate (demo mode), so the record
+// genuinely speeds up AND pitches up where the player allows it (Item 6).
+const RPM_33 = 33.333;
+const RPM_45 = 45;
+const SPIN_UP_MS = 800; // time to reach 33⅓ from rest
+const SPIN_DOWN_MS = 3200; // coast time from full speed to a stop
+
 export interface TurntableVisualProps {
   track: SpotifyTrack | null;
   isAuthenticated: boolean;
@@ -26,6 +35,13 @@ export interface TurntableVisualProps {
   // onCueLand exactly as the stylus touches — the caller starts playback there.
   cueRequestId?: number;
   onCueLand?: () => void;
+  // 45 RPM Easter egg (Item 6): optional hook to genuinely change the AUDIO
+  // rate when the platter speed changes. Demo mode passes a real setter (the
+  // <audio> element supports playbackRate). LIVE MODE LIMITATION: the Spotify
+  // Web Playback SDK exposes no rate/pitch control — the DRM'd stream is fixed
+  // at 1× and periodic seek-nudging would just stutter — so live leaves this
+  // undefined and the 45 setting changes the VISUAL spin speed only.
+  onSetPlaybackRate?: (rate: number) => void;
   onTogglePlay: () => void;
   onSeek: (ms: number) => void;
   onNext: () => void;
@@ -561,6 +577,7 @@ export default function TurntableVisual({
   scale = 1,
   cueRequestId,
   onCueLand,
+  onSetPlaybackRate,
   onTogglePlay,
   onSeek,
   onNext,
@@ -841,9 +858,29 @@ export default function TurntableVisual({
   // On STOP the motor cuts immediately (state -> returning, not powered) and the
   // platter coasts down over SPIN_DOWN_MS, which is longer than the arm's ~1.7s
   // return — so it keeps turning for a beat or two after the arm has parked.
-  const FULL_RPM = 33.333;
-  const SPIN_UP_MS = 800; // time to reach full speed from rest
-  const SPIN_DOWN_MS = 3200; // coast time from full speed to a stop
+  // Speeds/inertia are module-level FEEL constants (RPM_33 / RPM_45 / SPIN_*).
+
+  // ── 45 RPM Easter egg (Item 6) ──
+  // The platter target speed follows this; the audio only follows where the
+  // player allows a real rate change (see onSetPlaybackRate above).
+  const [rpm45, setRpm45] = useState(false);
+  const rpm45Ref = useRef(rpm45);
+  rpm45Ref.current = rpm45;
+  // Rate the AUDIO is actually advancing at — 1 unless a real rate setter is
+  // wired (demo). The local progress clock extrapolates with this multiplier.
+  const clockRate = onSetPlaybackRate && rpm45 ? RPM_45 / RPM_33 : 1;
+  const clockRateRef = useRef(clockRate);
+  clockRateRef.current = clockRate;
+
+  const setPlatterRpm45 = (fortyFive: boolean) => {
+    if (fortyFive === rpm45) return;
+    setRpm45(fortyFive);
+    // Re-anchor the clock at the displayed position so the new advance rate
+    // applies from now, not retroactively across the anchor interval.
+    localSeekMs(liveProgressRef.current);
+    onSetPlaybackRate?.(fortyFive ? RPM_45 / RPM_33 : 1);
+    ensureLoopRef.current();
+  };
 
   const rpmRef = useRef(0);
   const rotationRef = useRef(0);
@@ -906,11 +943,13 @@ export default function TurntableVisual({
       const powered = s === "playing" || s === "cueing" || s === "lifted" || s === "dragging";
       // Reduced motion (Item 5): target 0 rpm so the platter coasts to a stop and
       // stays static, while the clock below keeps advancing (functionality intact).
-      const target = powered && !reducedMotionRef.current ? FULL_RPM : 0;
+      // 33⅓ or 45 per the speed switch (Item 6); ramp rates stay 33-based so the
+      // 33→45 shift is a gentle motor push, not a jump.
+      const target = powered && !reducedMotionRef.current ? (rpm45Ref.current ? RPM_45 : RPM_33) : 0;
       if (rpmRef.current < target) {
-        rpmRef.current = Math.min(target, rpmRef.current + (FULL_RPM / SPIN_UP_MS) * delta);
+        rpmRef.current = Math.min(target, rpmRef.current + (RPM_33 / SPIN_UP_MS) * delta);
       } else if (rpmRef.current > target) {
-        rpmRef.current = Math.max(0, rpmRef.current - (FULL_RPM / SPIN_DOWN_MS) * delta);
+        rpmRef.current = Math.max(0, rpmRef.current - (RPM_33 / SPIN_DOWN_MS) * delta);
       }
       const moving = rpmRef.current > 0.001;
       if (moving) {
@@ -931,7 +970,8 @@ export default function TurntableVisual({
       prevAdvancingRef.current = advancing;
       if (advancing) {
         const a = anchorRef.current;
-        let live = a.pos + (t - a.t);
+        // clockRate ≠ 1 only when the audio itself runs faster (45 RPM in demo).
+        let live = a.pos + (t - a.t) * clockRateRef.current;
         const dur = durationRef.current;
         if (dur > 0 && live > dur) live = dur;
         liveProgressRef.current = live;
@@ -952,7 +992,7 @@ export default function TurntableVisual({
         stopLoop();
       }
     },
-    [FULL_RPM, SPIN_UP_MS, SPIN_DOWN_MS, stopLoop]
+    [stopLoop]
   );
 
   const ensureLoop = useCallback(() => {
@@ -1106,6 +1146,8 @@ export default function TurntableVisual({
             </div>
           </button>
 
+          {/* Speed switch (Item 6): 33⅓ / 45. Visual spin always follows; the
+              audio only follows in demo mode (see onSetPlaybackRate). */}
           <div
             style={{
               position: "absolute",
@@ -1119,7 +1161,36 @@ export default function TurntableVisual({
             }}
           >
             <div style={{ fontSize: "0.45em", color: "#f0d080", letterSpacing: "0.2em", marginBottom: 4 }}>SPEED</div>
-            <div style={{ fontSize: "0.5em", color: "#3d2100", background: "#c49a3c", borderRadius: 2, padding: "2px 6px" }}>33 ⅓</div>
+            <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+              {([false, true] as const).map((fortyFive) => {
+                const active = rpm45 === fortyFive;
+                return (
+                  <button
+                    key={String(fortyFive)}
+                    onClick={() => setPlatterRpm45(fortyFive)}
+                    aria-pressed={active}
+                    aria-label={fortyFive ? "45 RPM" : "33⅓ RPM"}
+                    title={
+                      fortyFive
+                        ? "45 RPM — spins the platter faster (audio rate only changes in demo mode)"
+                        : "33⅓ RPM"
+                    }
+                    style={{
+                      fontSize: "0.5em",
+                      fontFamily: "'Courier New', monospace",
+                      color: active ? "#3d2100" : "#a07828",
+                      background: active ? "#c49a3c" : "transparent",
+                      border: active ? "1px solid #e8c870" : "1px solid #6a5018",
+                      borderRadius: 2,
+                      padding: "2px 6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {fortyFive ? "45" : "33 ⅓"}
+                  </button>
+                );
+              })}
+            </div>
             <div style={{ fontSize: "0.38em", color: "#a07828", marginTop: 3, letterSpacing: "0.1em" }}>RPM</div>
           </div>
         </div>
