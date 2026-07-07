@@ -4,6 +4,13 @@
 //
 // States: parked -> cueing -> playing -> lifted -> dragging -> (drop) playing
 //                                     \-> returning -> parked   (STOP)
+//         parked -> dragging ─ release ON record  -> playing   (drop-to-play)
+//                            └ release OFF record -> returning -> parked
+//
+// The arm itself is the primary play gesture (Item 1): grab it from the rest and
+// the platter spins up; land it on the record and playback starts at that groove
+// radius; let go off the record (past the outer edge, or back on the rest) and
+// the platter coasts down and playback stops. START/STOP remain as backups.
 //
 // GEOMETRY: all coordinates are in the pixel space of the deck element you attach
 // `deckRef` to (its top-left = 0,0). The six constants in DEFAULT_GEOMETRY are the
@@ -11,6 +18,17 @@
 // the groove — everything downstream is derived. See the README tuning note.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+// ─── FEEL constants — tune by eye ────────────────────────────────────────────
+// FEEL: tune by eye — arm timing + drop tolerances, all in one place.
+const CUE_MS = 900;             // arm swing time on START (auto-cue)
+const RETURN_MS = 1700;         // arm return-to-rest time (STOP / off-record release)
+const PARK_TRANSITION_MS = 1600; // CSS transition when settling back on the rest
+const PLAYING_TRANSITION_MS = 220; // arm easing while tracking the groove
+const LIFTED_TRANSITION_MS = 300;  // arm easing while lifted in place
+// How far past the outer groove (in deck px) a release still counts as landing
+// ON the record. Beyond this — or on the rest — the drop is a "take it off".
+const DROP_EDGE_SLOP_PX = 14;
 
 export interface TonearmGeometry {
   pivotX: number;   // tonearm pivot, deck-space px
@@ -118,6 +136,11 @@ export function useTonearm({
   const dirMin = Math.min(dirA, dirB);
   const dirMax = Math.max(dirA, dirB);
 
+  // Groove radius the stylus sits at when the arm is on its rest. Anchors the
+  // outer end of the drag range so a grabbed-from-rest arm tracks the pointer
+  // all the way from the rest to the record instead of snapping on-groove.
+  const parkRadius = radiusForDir((g.parkDeg - g.artOffsetDeg) * D2R);
+
   // ── controls ────────────────────────────────────────────────────────────────
   const start = useCallback(() => {
     userInteracted.current = true;
@@ -127,7 +150,7 @@ export function useTonearm({
     ensurePlay();
     cueTimer.current = setTimeout(
       () => setState((s) => (s === "cueing" ? "playing" : s)),
-      900
+      CUE_MS
     );
   }, [ensurePlay]);
 
@@ -138,7 +161,7 @@ export function useTonearm({
     seek01(0);
     setState("returning");
     if (returnTimer.current) clearTimeout(returnTimer.current);
-    returnTimer.current = setTimeout(() => setState("parked"), 1700);
+    returnTimer.current = setTimeout(() => setState("parked"), RETURN_MS);
   }, [ensurePause, seek01]);
 
   const cue = useCallback(() => {
@@ -156,7 +179,7 @@ export function useTonearm({
     });
   }, [ensurePlay, ensurePause]);
 
-  // ── drag (grab the arm = lift; release = drop + seek) ───────────────────────
+  // ── drag (grab the arm = lift; release = drop-to-play or take-it-off) ───────
   // Live snapshot so the drag listeners can bind ONCE (re-registering every render
   // was dropping pointer events mid-drag).
   const live = useRef({
@@ -165,10 +188,12 @@ export function useTonearm({
     rInner: g.rInner,
     rOuter: g.rOuter,
     artOffsetDeg: g.artOffsetDeg,
+    parkRadius,
     scale,
     dirForRadius,
     seek01,
     ensurePlay,
+    ensurePause,
   });
   live.current = {
     centerX: g.centerX,
@@ -176,24 +201,43 @@ export function useTonearm({
     rInner: g.rInner,
     rOuter: g.rOuter,
     artOffsetDeg: g.artOffsetDeg,
+    parkRadius,
     scale,
     dirForRadius,
     seek01,
     ensurePlay,
+    ensurePause,
   };
   const dragRadiusRef = useRef<number | null>(null);
 
+  // The arm can now be grabbed from ANY settled state (Item 1): from the rest it
+  // is the primary "put the record on" gesture — grabbing spins the platter up
+  // (dragging counts as powered) — and mid-return it can be caught and re-dropped.
+  // Only "cueing" is excluded so an in-flight auto-cue isn't fought mid-swing.
   const onArmPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (state !== "playing" && state !== "lifted") return;
+      if (state === "cueing") return;
       userInteracted.current = true;
       e.preventDefault();
+      if (cueTimer.current) clearTimeout(cueTimer.current);
+      if (returnTimer.current) clearTimeout(returnTimer.current); // don't let a pending park fire mid-drag
       dragging.current = true;
-      dragRadiusRef.current = null;
+      if (state === "parked" || state === "returning") {
+        // Seed the drag at the rest position so the arm follows the hand from
+        // the rest instead of snapping onto the groove before the pointer moves.
+        dragRadiusRef.current = live.current.parkRadius;
+        setDragDeg(g.parkDeg);
+      } else {
+        // Grabbed off the groove: seed at the current progress radius so a
+        // no-move release drops it right back where it was.
+        const r = g.rOuter + (g.rInner - g.rOuter) * clamp(progress01, 0, 1);
+        dragRadiusRef.current = r;
+        setDragDeg(dirForRadius(r) * R2D + g.artOffsetDeg);
+      }
       ensurePause();
       setState("dragging");
     },
-    [state, ensurePause]
+    [state, ensurePause, progress01, dirForRadius, g.parkDeg, g.rOuter, g.rInner, g.artOffsetDeg]
   );
 
   // Drag maps the pointer's DISTANCE FROM THE RECORD CENTER to a groove radius, then
@@ -209,22 +253,34 @@ export function useTonearm({
       const x = (e.clientX - rect.left) / L.scale;
       const y = (e.clientY - rect.top) / L.scale;
       const rPointer = Math.hypot(x - L.centerX, y - L.centerY);
-      const r = clamp(rPointer, L.rInner, L.rOuter);
-      dragRadiusRef.current = r;
-      setDragDeg(L.dirForRadius(r) * R2D + L.artOffsetDeg);
+      // Keep the RAW radius for the release decision (on vs. off the record);
+      // only the displayed angle is clamped, to the label⟷rest swing range.
+      dragRadiusRef.current = rPointer;
+      const rDisplay = clamp(rPointer, L.rInner, L.parkRadius);
+      setDragDeg(L.dirForRadius(rDisplay) * R2D + L.artOffsetDeg);
     };
     const up = () => {
       if (!dragging.current) return;
       dragging.current = false;
       const L = live.current;
       const r = dragRadiusRef.current;
-      if (r != null) {
-        L.seek01(clamp((r - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
-      }
       dragRadiusRef.current = null;
       setDragDeg(null);
-      setState("playing");
-      L.ensurePlay();
+      if (r != null && r <= L.rOuter + DROP_EDGE_SLOP_PX) {
+        // Landed ON the record: that groove radius IS the playback position.
+        L.seek01(clamp((clamp(r, L.rInner, L.rOuter) - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
+        setState("playing");
+        L.ensurePlay();
+      } else {
+        // Released OFF the record (past the edge / on the rest): the needle never
+        // lands — playback stays paused (grab already paused it) and the arm
+        // returns while the platter coasts down. Unlike STOP this does NOT reset
+        // to 0: lifting the record off shouldn't lose your place.
+        L.ensurePause();
+        setState("returning");
+        if (returnTimer.current) clearTimeout(returnTimer.current);
+        returnTimer.current = setTimeout(() => setState("parked"), RETURN_MS);
+      }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -264,14 +320,14 @@ export function useTonearm({
     transitionMs = 0;
   } else if (state === "parked" || state === "returning") {
     angleDeg = g.parkDeg;
-    transitionMs = 1600;
+    transitionMs = PARK_TRANSITION_MS;
   } else if (state === "cueing") {
     angleDeg = displayForProgress(progress01);
-    transitionMs = 900;
+    transitionMs = CUE_MS;
   } else {
     // playing | lifted
     angleDeg = displayForProgress(progress01);
-    transitionMs = state === "lifted" ? 300 : 220;
+    transitionMs = state === "lifted" ? LIFTED_TRANSITION_MS : PLAYING_TRANSITION_MS;
   }
 
   const lifted = state === "lifted" || state === "dragging";

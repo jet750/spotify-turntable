@@ -1018,14 +1018,16 @@ export default function TurntableVisual({
           </div>
         </div>
 
-        {/* Tonearm overlay (absolute, positioned at the pivot) */}
+        {/* Tonearm overlay (absolute, positioned at the pivot). Grabbing the arm
+            is the primary play gesture (Item 1), so it obeys the same enablement
+            as the transport buttons — a locked/disconnected deck has a dead arm. */}
         <Tonearm
           angleDeg={arm.angleDeg}
           transitionMs={arm.transitionMs}
           lifted={arm.lifted}
           pivotX={430}
           pivotY={70}
-          onPointerDown={arm.onArmPointerDown}
+          onPointerDown={seekEnabled ? arm.onArmPointerDown : () => {}}
         />
       </div>
 
