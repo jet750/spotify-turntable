@@ -29,6 +29,9 @@ export interface SpotifyTrack {
   name: string;
   artist: string;
   album: string;
+  // Spotify album id (for GET /albums/{id} detail lookups — Item 5). Null when
+  // the source can't provide one (demo mode).
+  albumId: string | null;
   albumArt: string;
   durationMs: number;
   progressMs: number;
@@ -253,6 +256,7 @@ async function fetchCurrentlyPlaying(
     name: data.item.name,
     artist: data.item.artists.map((a: { name: string }) => a.name).join(", "),
     album: data.item.album.name,
+    albumId: data.item.album.id ?? null,
     albumArt: data.item.album.images[0]?.url ?? "",
     durationMs: data.item.duration_ms,
     progressMs: data.progress_ms ?? 0,
@@ -450,11 +454,14 @@ export function useSpotify(): SpotifyState {
         }
         setIsConnected(true);
         const t = state.track_window.current_track;
+        // The SDK's album object has no `id`, only a uri ("spotify:album:<id>").
+        const albumUri = t.album.uri ?? "";
         setTrack({
           id: t.id ?? "",
           name: t.name,
           artist: t.artists.map((a) => a.name).join(", "),
           album: t.album.name,
+          albumId: albumUri.startsWith("spotify:album:") ? albumUri.split(":")[2] : null,
           albumArt: t.album.images[0]?.url ?? "",
           durationMs: t.duration_ms,
           progressMs: state.position,

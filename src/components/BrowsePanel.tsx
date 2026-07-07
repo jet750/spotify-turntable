@@ -9,9 +9,9 @@
 // LIVE-MODE ONLY — this never touches the demo player.
 
 import { useEffect, useRef, useState } from "react";
-import type { SpotifyState } from "../lib/useSpotify";
+import type { SpotifyState, SpotifyTrack } from "../lib/useSpotify";
 import { useSpotifyLibrary } from "../lib/useSpotifyLibrary";
-import type { BrowseCard, TabState } from "../lib/useSpotifyLibrary";
+import type { AlbumDetailState, BrowseCard, TabState } from "../lib/useSpotifyLibrary";
 
 // ─── Palette (matches TurntableVisual.tsx) ──────────────────────────────────
 const WALNUT_DARK = "#2a1c08";
@@ -22,9 +22,10 @@ const BRASS_DIM = "#a08040";
 const BORDER_DARK = "#3a2808";
 const MONO = "'Courier New', monospace";
 
-type TabKey = "search" | "playlists" | "collection" | "recent";
+type TabKey = "now" | "search" | "playlists" | "collection" | "recent";
 
 const TABS: { key: TabKey; label: string }[] = [
+  { key: "now", label: "Now" },
   { key: "search", label: "Search" },
   { key: "playlists", label: "Playlists" },
   { key: "collection", label: "Collection" },
@@ -52,6 +53,15 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeTab]);
 
+  // Now-playing album facts (Item 5): follow the current track's album while
+  // the Now tab is visible. Cached per album, so poll-driven re-runs are free.
+  const nowAlbumId = spotify.track?.albumId ?? null;
+  useEffect(() => {
+    if (!open || activeTab !== "now" || !nowAlbumId) return;
+    library.loadAlbumDetail(nowAlbumId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeTab, nowAlbumId]);
+
   // Debounced search (~350ms) while the Search tab is active.
   useEffect(() => {
     if (!open || activeTab !== "search") return;
@@ -62,14 +72,14 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
 
   const stateFor = (tab: TabKey): TabState => {
     switch (tab) {
-      case "search":
-        return library.searchResults;
       case "playlists":
         return library.playlists;
       case "collection":
         return library.collection;
       case "recent":
         return library.recent;
+      default:
+        return library.searchResults;
     }
   };
 
@@ -179,7 +189,7 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
                   padding: "6px 4px",
                   color: active ? BRASS_LIGHT : BRASS_DIM,
                   fontFamily: MONO,
-                  fontSize: 11,
+                  fontSize: 10, // five tabs now share the rail (Item 5)
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
                   cursor: "pointer",
@@ -226,6 +236,8 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
         >
           {library.expired ? (
             <ReconnectNotice onReconnect={spotify.login} />
+          ) : activeTab === "now" ? (
+            <NowPlayingView track={spotify.track} albumDetail={library.albumDetail} />
           ) : (
             <TabBody
               tab={tab}
@@ -237,6 +249,117 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
         </div>
       </aside>
     </>
+  );
+}
+
+// ─── Now-playing view (Item 5) ──────────────────────────────────────────────
+// Full cover art + the facts we can actually get: track/artist/album from the
+// player state, release year / track count / label from GET /albums/{id}.
+function NowPlayingView({
+  track,
+  albumDetail,
+}: {
+  track: SpotifyTrack | null;
+  albumDetail: AlbumDetailState;
+}) {
+  if (!track) {
+    return (
+      <div style={{ padding: "24px 8px", textAlign: "center", color: BRASS_DIM, fontSize: 12, fontFamily: MONO }}>
+        Nothing on the platter.
+      </div>
+    );
+  }
+
+  // Only show detail that belongs to THIS track's album (a stale fetch for the
+  // previous record shouldn't caption the new one).
+  const detail = albumDetail.id === track.albumId ? albumDetail.detail : null;
+  const loadingFacts = albumDetail.id === track.albumId && albumDetail.loading;
+
+  const facts: string[] = [];
+  if (detail?.releaseYear) facts.push(detail.releaseYear);
+  if (detail?.totalTracks) facts.push(`${detail.totalTracks} track${detail.totalTracks === 1 ? "" : "s"}`);
+  if (detail?.label) facts.push(detail.label);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.2em",
+          color: BRASS_DIM,
+          textTransform: "uppercase",
+        }}
+      >
+        On the platter
+      </div>
+
+      {track.albumArt ? (
+        <img
+          src={track.albumArt}
+          alt={`${track.album} cover art`}
+          style={{
+            width: "100%",
+            aspectRatio: "1 / 1",
+            objectFit: "cover",
+            borderRadius: 6,
+            display: "block",
+            background: WALNUT_DARK,
+            border: `1px solid ${BORDER_DARK}`,
+            boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: "100%",
+            aspectRatio: "1 / 1",
+            borderRadius: 6,
+            background: "radial-gradient(circle at 35% 30%, #e8c870, #c49a3c 55%, #8a6820)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#3d2100",
+            fontSize: 48,
+          }}
+        >
+          ◉
+        </div>
+      )}
+
+      <div>
+        <div
+          style={{
+            color: BRASS_LIGHT,
+            fontFamily: "Georgia, serif",
+            fontWeight: "bold",
+            fontSize: 18,
+            lineHeight: 1.25,
+          }}
+        >
+          {track.name}
+        </div>
+        <div style={{ color: BRASS, fontSize: 13, marginTop: 4, fontFamily: MONO }}>{track.artist}</div>
+        <div style={{ color: BRASS_DIM, fontSize: 12, marginTop: 8, fontFamily: MONO }}>
+          {track.album}
+          {detail?.releaseYear ? ` · ${detail.releaseYear}` : ""}
+        </div>
+      </div>
+
+      {(facts.length > 0 || loadingFacts) && (
+        <div
+          style={{
+            borderTop: `1px solid ${BORDER_DARK}`,
+            paddingTop: 10,
+            color: BRASS_DIM,
+            fontSize: 11,
+            fontFamily: MONO,
+            letterSpacing: "0.05em",
+          }}
+        >
+          {loadingFacts && facts.length === 0 ? "…" : facts.join(" · ")}
+        </div>
+      )}
+    </div>
   );
 }
 

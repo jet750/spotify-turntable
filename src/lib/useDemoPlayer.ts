@@ -135,6 +135,7 @@ export function useDemoPlayer(): DemoPlayer {
     name: meta.name,
     artist: meta.artist,
     album: meta.album,
+    albumId: null, // demo tracks have no Spotify album to look up
     albumArt: meta.cover,
     durationMs,
     progressMs,

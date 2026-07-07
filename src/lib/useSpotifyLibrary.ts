@@ -34,15 +34,37 @@ export interface TabState {
 
 const EMPTY_TAB: TabState = { cards: [], loading: false, error: null, loaded: false };
 
+// ─── Album detail (Item 5: now-playing facts) ───────────────────────────────
+// From GET /albums/{id} — one of the endpoints still available to dev-mode
+// apps. Only the display-worthy facts are kept.
+export interface AlbumDetail {
+  id: string;
+  releaseDate: string | null; // "YYYY-MM-DD", "YYYY-MM" or "YYYY"
+  releaseYear: string | null;
+  totalTracks: number | null;
+  label: string | null;
+}
+
+export interface AlbumDetailState {
+  id: string | null; // album the detail below belongs to / is loading for
+  detail: AlbumDetail | null;
+  loading: boolean;
+  error: string | null;
+}
+
+const EMPTY_ALBUM_DETAIL: AlbumDetailState = { id: null, detail: null, loading: false, error: null };
+
 export interface SpotifyLibrary {
   expired: boolean; // token rejected (401) — user should reconnect
   playlists: TabState;
   collection: TabState;
   recent: TabState;
   searchResults: TabState;
+  albumDetail: AlbumDetailState;
   loadPlaylists: () => void;
   loadCollection: () => void;
   loadRecent: () => void;
+  loadAlbumDetail: (albumId: string) => void;
   search: (q: string) => void;
 }
 
@@ -89,6 +111,11 @@ interface RecentlyPlayedResponse {
 }
 interface SearchResponse {
   albums?: { items: SpAlbum[] };
+}
+interface AlbumDetailResponse {
+  release_date?: string;
+  total_tracks?: number;
+  label?: string;
 }
 
 // ─── Normalizers ────────────────────────────────────────────────────────────
@@ -138,6 +165,7 @@ export function useSpotifyLibrary(token: string | null): SpotifyLibrary {
   const [collection, setCollection] = useState<TabState>(EMPTY_TAB);
   const [recent, setRecent] = useState<TabState>(EMPTY_TAB);
   const [searchResults, setSearchResults] = useState<TabState>(EMPTY_TAB);
+  const [albumDetail, setAlbumDetail] = useState<AlbumDetailState>(EMPTY_ALBUM_DETAIL);
 
   // Guards so lazy tabs fetch exactly once per token (survives re-renders /
   // React strict-mode double-invocation). Reset when the token changes.
@@ -145,6 +173,8 @@ export function useSpotifyLibrary(token: string | null): SpotifyLibrary {
   const collectionStarted = useRef(false);
   const recentStarted = useRef(false);
   const searchSeq = useRef(0);
+  const albumSeq = useRef(0);
+  const albumCache = useRef(new Map<string, AlbumDetail>());
 
   // ── Shared GET helper ──────────────────────────────────────────────────
   const get = useCallback(
@@ -169,11 +199,14 @@ export function useSpotifyLibrary(token: string | null): SpotifyLibrary {
     collectionStarted.current = false;
     recentStarted.current = false;
     searchSeq.current++;
+    albumSeq.current++;
+    albumCache.current.clear();
     setExpired(false);
     setPlaylists(EMPTY_TAB);
     setCollection(EMPTY_TAB);
     setRecent(EMPTY_TAB);
     setSearchResults(EMPTY_TAB);
+    setAlbumDetail(EMPTY_ALBUM_DETAIL);
   }, [token]);
 
   // ── Playlists ──────────────────────────────────────────────────────────
@@ -231,6 +264,42 @@ export function useSpotifyLibrary(token: string | null): SpotifyLibrary {
       });
   }, [get]);
 
+  // ── Album detail for the now-playing view (Item 5) ─────────────────────
+  // Cached per album id (a track poll re-fires this every few seconds via the
+  // effect in BrowsePanel; only the first call per album hits the network).
+  const loadAlbumDetail = useCallback(
+    (albumId: string) => {
+      if (!albumId) return;
+      const cached = albumCache.current.get(albumId);
+      if (cached) {
+        setAlbumDetail((s) =>
+          s.id === albumId && s.detail ? s : { id: albumId, detail: cached, loading: false, error: null }
+        );
+        return;
+      }
+      const seq = ++albumSeq.current;
+      setAlbumDetail({ id: albumId, detail: null, loading: true, error: null });
+      get<AlbumDetailResponse>(`/albums/${albumId}`)
+        .then((a) => {
+          const detail: AlbumDetail = {
+            id: albumId,
+            releaseDate: a.release_date ?? null,
+            releaseYear: a.release_date ? a.release_date.slice(0, 4) : null,
+            totalTracks: a.total_tracks ?? null,
+            label: a.label ?? null,
+          };
+          albumCache.current.set(albumId, detail);
+          if (seq !== albumSeq.current) return; // superseded by a newer track
+          setAlbumDetail({ id: albumId, detail, loading: false, error: null });
+        })
+        .catch((e) => {
+          if (seq !== albumSeq.current) return;
+          setAlbumDetail({ id: albumId, detail: null, loading: false, error: e.message });
+        });
+    },
+    [get]
+  );
+
   // ── Album search (debounced by the caller) ─────────────────────────────
   const search = useCallback(
     (q: string) => {
@@ -262,9 +331,11 @@ export function useSpotifyLibrary(token: string | null): SpotifyLibrary {
     collection,
     recent,
     searchResults,
+    albumDetail,
     loadPlaylists,
     loadCollection,
     loadRecent,
+    loadAlbumDetail,
     search,
   };
 }
