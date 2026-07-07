@@ -20,6 +20,17 @@ const RPM_45 = 45;
 const SPIN_UP_MS = 800; // time to reach 33⅓ from rest
 const SPIN_DOWN_MS = 3200; // coast time from full speed to a stop
 
+// FEEL: tune by eye — spin motion-blur (Item 7). Implemented as ghost copies of
+// the label art rotated ±BLUR_GHOST_DEG inside the composited spinning layer —
+// a tangential smear that fades in with the motor. Opacity changes only on
+// spin-state transitions (CSS-eased), so spinning costs no per-frame repaints.
+// (The grooves themselves are rotation-invariant circles — only the label can
+// visibly blur, which is also what the eye tracks on real vinyl.)
+const BLUR_GHOST_DEG = 2.6; // smear angle of each ghost copy
+const BLUR_MAX_OPACITY = 0.3; // ghost opacity at full blur (45 RPM)
+const BLUR_33_LEVEL = 0.7; // fraction of full blur while at 33⅓
+const BLUR_FADE_MS = 700; // blur fade-in/out ≈ the spin-up feel
+
 export interface TurntableVisualProps {
   track: SpotifyTrack | null;
   isAuthenticated: boolean;
@@ -57,10 +68,13 @@ function VinylRecord({
   albumArt,
   isSpinning,
   rotationDeg,
+  blur01 = 0,
 }: {
   albumArt: string | null;
   isSpinning: boolean;
   rotationDeg: number;
+  // 0..1 motion-blur amount (Item 7). Changes only on spin-state transitions.
+  blur01?: number;
 }) {
   const size = 320;
   const r = size / 2;
@@ -70,6 +84,28 @@ function VinylRecord({
     opacity: 0.4 + (i % 3) * 0.12,
     width: i % 4 === 0 ? 0.7 : 0.4,
   }));
+
+  // The label face, reused for the main print and the two motion-blur ghosts
+  // (Item 7). Ghosts are the same node rotated a few degrees either way — a
+  // tangential smear, exactly what a fast label does to the eye.
+  const label = albumArt ? (
+    <image
+      href={albumArt}
+      x={r - labelRadius}
+      y={r - labelRadius}
+      width={labelRadius * 2}
+      height={labelRadius * 2}
+      clipPath="url(#labelClip)"
+      preserveAspectRatio="xMidYMid slice"
+    />
+  ) : (
+    <g clipPath="url(#labelClip)">
+      <circle cx={r} cy={r} r={labelRadius} fill="#d4a843" />
+      <text x={r} y={r} textAnchor="middle" fill="#3d2100" fontSize={labelRadius * 0.2} fontFamily="Georgia, serif" fontWeight="bold">
+        VINYL
+      </text>
+    </g>
+  );
 
   return (
     <svg
@@ -109,24 +145,23 @@ function VinylRecord({
       <circle cx={r} cy={r} r={r - 1} fill="url(#vinylSheen)" />
 
       <circle cx={r} cy={r} r={labelRadius} fill="#c8a84b" />
-      {albumArt ? (
-        <image
-          href={albumArt}
-          x={r - labelRadius}
-          y={r - labelRadius}
-          width={labelRadius * 2}
-          height={labelRadius * 2}
-          clipPath="url(#labelClip)"
-          preserveAspectRatio="xMidYMid slice"
-        />
-      ) : (
-        <g clipPath="url(#labelClip)">
-          <circle cx={r} cy={r} r={labelRadius} fill="#d4a843" />
-          <text x={r} y={r} textAnchor="middle" fill="#3d2100" fontSize={labelRadius * 0.2} fontFamily="Georgia, serif" fontWeight="bold">
-            VINYL
-          </text>
-        </g>
-      )}
+      {label}
+      {/* Motion-blur ghosts (Item 7): the label again at ±BLUR_GHOST_DEG, faded
+          in while spinning. Static transforms + a rare opacity change (CSS-eased
+          on spin-state transitions), all inside the composited spinning layer —
+          no per-frame filter/repaint work. */}
+      <g
+        transform={`rotate(${-BLUR_GHOST_DEG} ${r} ${r})`}
+        style={{ opacity: blur01 * BLUR_MAX_OPACITY, transition: `opacity ${BLUR_FADE_MS}ms ease` }}
+      >
+        {label}
+      </g>
+      <g
+        transform={`rotate(${BLUR_GHOST_DEG} ${r} ${r})`}
+        style={{ opacity: blur01 * BLUR_MAX_OPACITY, transition: `opacity ${BLUR_FADE_MS}ms ease` }}
+      >
+        {label}
+      </g>
 
       <circle cx={r} cy={r} r={6} fill="#111" stroke="#333" strokeWidth="1" />
       <circle cx={r} cy={r} r={3} fill="#222" />
@@ -896,6 +931,11 @@ export default function TurntableVisual({
   const [rotationDeg, setRotationDeg] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
+  // Motion-blur amount (Item 7): follows the spin state, slightly heavier at
+  // 45 RPM. Flips only on these state transitions — the ghosts' CSS opacity
+  // ease (BLUR_FADE_MS) does the actual ramp, so no per-frame work.
+  const blur01 = spinning ? (rpm45 ? 1 : BLUR_33_LEVEL) : 0;
+
   // ── prefers-reduced-motion (Item 5) ─────────────────────────────────────────
   // When the user asks for reduced motion we stop the continuous platter spin and
   // show a static record. Everything functional — the progress clock, the tonearm
@@ -1098,11 +1138,11 @@ export default function TurntableVisual({
           <div style={{ position: "relative", zIndex: 2, width: 320, height: 320 }}>
             {isFading && fadingArt && (
               <div style={{ position: "absolute", inset: 0, opacity: 0, transition: "opacity 0.6s ease" }}>
-                <VinylRecord albumArt={fadingArt} isSpinning={false} rotationDeg={rotationDeg} />
+                <VinylRecord albumArt={fadingArt} isSpinning={false} rotationDeg={rotationDeg} blur01={0} />
               </div>
             )}
             <div style={{ opacity: isFading ? 0 : 1, transition: "opacity 0.6s ease" }}>
-              <VinylRecord albumArt={displayArt} isSpinning={spinning} rotationDeg={rotationDeg} />
+              <VinylRecord albumArt={displayArt} isSpinning={spinning} rotationDeg={rotationDeg} blur01={blur01} />
             </div>
           </div>
         </div>
