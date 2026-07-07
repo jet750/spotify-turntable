@@ -12,11 +12,12 @@
 //   move the check server-side (Vercel Edge Middleware + a non-VITE secret) — see
 //   the README "Hardening the gate" section.
 
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
 import InfoButtonRow, { InfoItem } from "../components/InfoButtons";
 import { useSpotify } from "../lib/useSpotify";
+import type { PlayContextOpts } from "../lib/useSpotify";
 
 // Code-split the LIBRARY drawer (Item 8): it + its data hook (useSpotifyLibrary)
 // stay out of the initial bundle and only load on first open. Default export ->
@@ -51,6 +52,27 @@ export default function Live() {
 
   // Browse is live-only: it needs an unlocked page AND a connected account.
   const canBrowse = unlocked && spotify.isAuthenticated;
+
+  // ── Library pick → needle-drop cue (Item 3) ────────────────────────────────
+  // A pick from the drawer doesn't start playback directly: it's parked in
+  // pendingPickRef and the deck is asked (cueRequestId bump) to run a full cue —
+  // the arm swings over in silence and the context starts only as the stylus
+  // lands (onCueLand). The BrowsePanel sees a spotify object whose playContext
+  // is swapped for this request, so its behavior needs no changes.
+  const [cueRequestId, setCueRequestId] = useState(0);
+  const pendingPickRef = useRef<PlayContextOpts | null>(null);
+  const spotifyForBrowse = {
+    ...spotify,
+    playContext: async (opts: PlayContextOpts) => {
+      pendingPickRef.current = opts;
+      setCueRequestId((n) => n + 1);
+    },
+  };
+  const handleCueLand = () => {
+    const pick = pendingPickRef.current;
+    pendingPickRef.current = null;
+    if (pick) void spotify.playContext(pick);
+  };
 
   const tryUnlock = () => {
     if (entry === PASS) {
@@ -107,6 +129,8 @@ export default function Live() {
               mode="live"
               scale={scale}
               locked={!unlocked}
+              cueRequestId={cueRequestId}
+              onCueLand={handleCueLand}
               track={spotify.track}
               isAuthenticated={spotify.isAuthenticated}
               isConnected={spotify.isConnected}
@@ -163,7 +187,7 @@ export default function Live() {
       {canBrowse && browseRequested && (
         <Suspense fallback={<BrowseFallback />}>
           <BrowsePanel
-            spotify={spotify}
+            spotify={spotifyForBrowse}
             open={browseOpen}
             onClose={() => setBrowseOpen(false)}
           />

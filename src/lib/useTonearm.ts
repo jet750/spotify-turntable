@@ -194,13 +194,29 @@ export function useTonearm({
     }
   }, [state]);
 
+  // ── Needle-drop deferral (Item 3) ───────────────────────────────────────────
+  // A cue can carry an action that must run EXACTLY as the stylus touches the
+  // record — starting the audio after a beat of silence. Stored as a ref-read of
+  // the live ensurePlay (not a captured closure) so a landing a second later
+  // still acts on current player state.
+  const ensurePlayRef = useRef(ensurePlay);
+  ensurePlayRef.current = ensurePlay;
+  const pendingLandActionRef = useRef<(() => void) | null>(null);
+  // False until the first gesture that puts the needle on the record. Only the
+  // FIRST start of a page load gets the ceremonial silent cue; every ordinary
+  // resume afterwards starts the audio immediately (Item 3 scoping).
+  const firstDropDoneRef = useRef(false);
+
   // The stylus has touched down at the end of a cue swing: cueing -> playing.
-  // (Item 3/4 hook point: this is the exact "needle meets record" moment.)
+  // Runs any deferred needle-drop action (Item 3) at the exact touch moment.
   const landNow = useCallback(() => {
     if (cueTimer.current) {
       clearTimeout(cueTimer.current);
       cueTimer.current = null;
     }
+    const action = pendingLandActionRef.current;
+    pendingLandActionRef.current = null;
+    action?.();
     setState((s) => (s === "cueing" ? "playing" : s));
   }, []);
 
@@ -258,15 +274,41 @@ export function useTonearm({
     userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
     setState("cueing");
-    ensurePlay();
+    if (firstDropDoneRef.current) {
+      // Ordinary re-start mid-session: audio rolls while the arm swings over.
+      ensurePlay();
+    } else {
+      // FIRST start after page load (Item 3): hold the silence — the audio
+      // begins only as the stylus lands.
+      pendingLandActionRef.current = () => ensurePlayRef.current();
+    }
+    firstDropDoneRef.current = true;
     // Fallback only: the spring's landing detection normally ends the cue. This
     // catches a hidden tab (rAF halted) so the deck can't stick mid-cue forever.
     cueTimer.current = setTimeout(landNow, CUE_FALLBACK_MS);
   }, [ensurePlay, landNow]);
 
+  // Full needle-drop cue onto a NEW record (a Library pick, Item 3): the arm
+  // swings over and `onLand` — typically "start the new context" — fires only
+  // as the stylus touches down. The caller is responsible for pausing current
+  // audio and zeroing the local clock BEFORE invoking, so the swing is silent
+  // and targets the outer groove.
+  const cueTo = useCallback(
+    (onLand: () => void) => {
+      userInteracted.current = true;
+      if (cueTimer.current) clearTimeout(cueTimer.current);
+      firstDropDoneRef.current = true;
+      pendingLandActionRef.current = onLand;
+      setState("cueing");
+      cueTimer.current = setTimeout(landNow, CUE_FALLBACK_MS);
+    },
+    [landNow]
+  );
+
   const stop = useCallback(() => {
     userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
+    pendingLandActionRef.current = null; // an aborted cue must never fire later
     ensurePause();
     seek01(0);
     setState("returning"); // spring carries it home; step() parks it on settle
@@ -377,6 +419,9 @@ export function useTonearm({
       dragDegRef.current = null;
       if (r != null && r <= L.rOuter + DROP_EDGE_SLOP_PX) {
         // Landed ON the record: that groove radius IS the playback position.
+        // A manual drop counts as the session's first needle-down, so a later
+        // START gets no ceremonial delay (Item 3 scoping).
+        firstDropDoneRef.current = true;
         L.seek01(clamp((clamp(r, L.rInner, L.rOuter) - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
         setState("playing");
         L.ensurePlay();
@@ -432,6 +477,7 @@ export function useTonearm({
     start,
     stop,
     cue,
+    cueTo,
     step,
     onArmPointerDown,
   };

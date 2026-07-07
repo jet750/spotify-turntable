@@ -20,6 +20,11 @@ export interface TurntableVisualProps {
   // CSS scale the deck is rendered at (set by DeckScaler). Forwarded to the
   // tonearm so drag-to-seek converts pointer px correctly. Defaults to 1.
   scale?: number;
+  // Full needle-drop cue for a NEW record (Item 3): bump this counter and the
+  // deck pauses current audio, swings the arm to the outer groove, and fires
+  // onCueLand exactly as the stylus touches — the caller starts playback there.
+  cueRequestId?: number;
+  onCueLand?: () => void;
   onTogglePlay: () => void;
   onSeek: (ms: number) => void;
   onNext: () => void;
@@ -553,6 +558,8 @@ export default function TurntableVisual({
   mode = "live",
   locked = false,
   scale = 1,
+  cueRequestId,
+  onCueLand,
   onTogglePlay,
   onSeek,
   onNext,
@@ -595,16 +602,23 @@ export default function TurntableVisual({
 
   const progress01 = durationMs > 0 ? Math.min(liveProgressMs / durationMs, 1) : 0;
 
+  // Move the LOCAL clock only (anchor + shield window) without telling the
+  // player — used by real seeks below, and by the new-record cue (Item 3),
+  // where the incoming context starts at 0 on its own.
+  const localSeekMs = (ms: number) => {
+    anchorRef.current = { pos: ms, t: performance.now() };
+    liveProgressRef.current = ms;
+    lastSeekRef.current = performance.now();
+    setLiveProgressMs(ms);
+  };
+
   // Seek that also moves the local clock instantly, then forwards to the player.
   // Wakes the animation loop (via ref — ensureLoop is defined below) so the arm
   // spring can glide to the new groove radius even if the deck was idle.
   const ensureLoopRef = useRef<() => void>(() => {});
   const seekTo = (ms: number) => {
     const clamped = durationMs > 0 ? Math.max(0, Math.min(ms, durationMs)) : Math.max(0, ms);
-    anchorRef.current = { pos: clamped, t: performance.now() };
-    liveProgressRef.current = clamped;
-    lastSeekRef.current = performance.now();
-    setLiveProgressMs(clamped);
+    localSeekMs(clamped);
     onSeek(ms);
     ensureLoopRef.current();
   };
@@ -619,6 +633,23 @@ export default function TurntableVisual({
   const seek01 = (p: number) => seekTo(p * durationMs);
 
   const arm = useTonearm({ progress01, deckRef, scale, isPlaying, ensurePlay, ensurePause, seek01 });
+
+  // ── New-record needle-drop cue (Item 3) ─────────────────────────────────────
+  // A bumped cueRequestId means "a fresh record just went on" (Library pick).
+  // Silence the current audio, zero the local clock so the arm targets the
+  // outer groove, and swing over — onCueLand (which starts the new context)
+  // fires only as the stylus touches down.
+  const onCueLandRef = useRef(onCueLand);
+  onCueLandRef.current = onCueLand;
+  const lastCueReqRef = useRef(cueRequestId);
+  useEffect(() => {
+    if (cueRequestId === undefined || cueRequestId === lastCueReqRef.current) return;
+    lastCueReqRef.current = cueRequestId;
+    ensurePause();
+    localSeekMs(0);
+    arm.cueTo(() => onCueLandRef.current?.());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cueRequestId]);
 
   // Correction: a fresh player/SDK reading re-anchors the local clock — unless a
   // local seek was just issued, in which case we ride the optimistic anchor until
