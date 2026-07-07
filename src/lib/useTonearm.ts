@@ -97,6 +97,10 @@ interface UseTonearmArgs {
   ensurePlay: () => void;
   ensurePause: () => void;
   seek01: (p: number) => void;
+  // Fired the instant the stylus physically meets the record — cue landings,
+  // drag drop-to-play releases, and DROP-button drops. Item 4 hangs the
+  // one-shot crackle here. Optional and read live (ref), never re-binds.
+  onNeedleDown?: () => void;
 }
 
 export function useTonearm({
@@ -108,6 +112,7 @@ export function useTonearm({
   ensurePlay,
   ensurePause,
   seek01,
+  onNeedleDown,
 }: UseTonearmArgs) {
   const g = { ...DEFAULT_GEOMETRY, ...geometry };
   const [state, setState] = useState<ArmState>("parked");
@@ -201,6 +206,8 @@ export function useTonearm({
   // still acts on current player state.
   const ensurePlayRef = useRef(ensurePlay);
   ensurePlayRef.current = ensurePlay;
+  const onNeedleDownRef = useRef(onNeedleDown);
+  onNeedleDownRef.current = onNeedleDown;
   const pendingLandActionRef = useRef<(() => void) | null>(null);
   // False until the first gesture that puts the needle on the record. Only the
   // FIRST start of a page load gets the ceremonial silent cue; every ordinary
@@ -217,6 +224,7 @@ export function useTonearm({
     const action = pendingLandActionRef.current;
     pendingLandActionRef.current = null;
     action?.();
+    onNeedleDownRef.current?.();
     setState((s) => (s === "cueing" ? "playing" : s));
   }, []);
 
@@ -320,6 +328,7 @@ export function useTonearm({
       // A zero-distance drop: give the spring a nudge so the needle still
       // visibly micro-settles instead of freezing in place.
       velRef.current += DROP_NUDGE_DEG_PER_S;
+      onNeedleDownRef.current?.();
     }
     setState((s) => {
       if (s === "playing") {
@@ -424,6 +433,7 @@ export function useTonearm({
         firstDropDoneRef.current = true;
         L.seek01(clamp((clamp(r, L.rInner, L.rOuter) - L.rOuter) / (L.rInner - L.rOuter), 0, 1));
         setState("playing");
+        onNeedleDownRef.current?.();
         L.ensurePlay();
       } else {
         // Released OFF the record (past the edge / on the rest): the needle never

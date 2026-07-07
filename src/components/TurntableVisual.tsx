@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpotifyTrack } from "../lib/useSpotify";
 import { useTonearm, ArmState } from "../lib/useTonearm";
+import { useVinylNoise } from "../lib/useVinylNoise";
 
 export type TurntableMode = "live" | "demo";
 
@@ -632,7 +633,25 @@ export default function TurntableVisual({
   };
   const seek01 = (p: number) => seekTo(p * durationMs);
 
-  const arm = useTonearm({ progress01, deckRef, scale, isPlaying, ensurePlay, ensurePause, seek01 });
+  // ── Vinyl crackle overlay (Item 4) ─────────────────────────────────────────
+  // One-shot drop crackle fires from the arm's needle-down moments; the ambient
+  // bed runs only while the needle is riding a spinning record ("playing").
+  const noise = useVinylNoise();
+
+  const arm = useTonearm({
+    progress01,
+    deckRef,
+    scale,
+    isPlaying,
+    ensurePlay,
+    ensurePause,
+    seek01,
+    onNeedleDown: noise.playNeedleDrop,
+  });
+
+  useEffect(() => {
+    noise.setBedActive(arm.state === "playing");
+  }, [arm.state, noise.setBedActive]);
 
   // ── New-record needle-drop cue (Item 3) ─────────────────────────────────────
   // A bumped cueRequestId means "a fresh record just went on" (Library pick).
@@ -1048,8 +1067,45 @@ export default function TurntableVisual({
           </div>
         </div>
 
-        {/* Right: speed plate */}
+        {/* Right: crackle + speed plates */}
         <div style={{ position: "relative", width: 160, alignSelf: "stretch", flexShrink: 0 }}>
+          {/* Surface-noise bed toggle (Item 4) */}
+          <button
+            onClick={noise.toggleBed}
+            aria-pressed={noise.bedEnabled}
+            aria-label={noise.bedEnabled ? "Turn off surface crackle" : "Turn on surface crackle"}
+            title="Ambient vinyl surface noise under the music"
+            style={{
+              position: "absolute",
+              bottom: 108,
+              right: 10,
+              background: "linear-gradient(180deg, #6a4e18 0%, #523a10 100%)",
+              border: `1px solid ${noise.bedEnabled ? "#e8c870" : "#8a6828"}`,
+              borderRadius: 4,
+              padding: "5px 10px",
+              textAlign: "center",
+              cursor: "pointer",
+              fontFamily: "'Courier New', monospace",
+            }}
+          >
+            <div style={{ fontSize: "0.42em", color: "#f0d080", letterSpacing: "0.18em", marginBottom: 3 }}>
+              CRACKLE
+            </div>
+            <div
+              style={{
+                fontSize: "0.42em",
+                color: noise.bedEnabled ? "#3d2100" : "#a07828",
+                background: noise.bedEnabled ? "#c49a3c" : "transparent",
+                border: noise.bedEnabled ? "none" : "1px solid #6a5018",
+                borderRadius: 2,
+                padding: "2px 6px",
+                letterSpacing: "0.12em",
+              }}
+            >
+              {noise.bedEnabled ? "ON" : "OFF"}
+            </div>
+          </button>
+
           <div
             style={{
               position: "absolute",
