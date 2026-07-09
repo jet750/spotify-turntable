@@ -11,6 +11,7 @@ import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
 import SettingsPanel, { SettingsSection } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
+import HowToPager from "../components/HowTo";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
 import { DEMO_TRACKS } from "../lib/demoMeta";
 import { loadSavedMetal, metalCssVars } from "../lib/metals";
@@ -41,6 +42,11 @@ export default function Home() {
           tonearm and label sync to whatever I&apos;m actually listening to.
         </>
       ),
+    },
+    {
+      id: "howto",
+      label: "How-To",
+      content: <HowToPager />,
     },
   ];
 

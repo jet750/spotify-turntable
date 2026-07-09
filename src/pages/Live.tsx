@@ -10,6 +10,7 @@ import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
 import SettingsPanel, { MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
+import HowToPager from "../components/HowTo";
 import { useSpotify } from "../lib/useSpotify";
 import type { PlayContextOpts } from "../lib/useSpotify";
 import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
@@ -100,6 +101,11 @@ export default function Live() {
           complete authorization.
         </>
       ),
+    },
+    {
+      id: "howto",
+      label: "How-To",
+      content: <HowToPager />,
     },
     {
       id: "deck",
