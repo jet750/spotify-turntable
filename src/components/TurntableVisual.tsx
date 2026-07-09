@@ -8,6 +8,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpotifyTrack } from "../lib/useSpotify";
 import { useTonearm, ArmState } from "../lib/useTonearm";
 import { useVinylNoise } from "../lib/useVinylNoise";
+import {
+  WOODS,
+  DEFAULT_WOOD,
+  WOOD_TILE_PX,
+  WOOD_NORMAL_OPACITY,
+  WOOD_NORMAL_BLEND,
+  WoodName,
+} from "../lib/woods";
 
 export type TurntableMode = "live" | "demo";
 
@@ -37,7 +45,10 @@ export interface TurntableVisualProps {
   isConnected: boolean;
   error?: string | null;
   mode?: TurntableMode;
-  locked?: boolean;
+  // Selected deck wood finish (Settings tab, live-only). Falls back to the
+  // catalog default so callers that don't customize it (e.g. Home's demo
+  // deck) still render a real wood surface instead of a flat fill.
+  deckWood?: WoodName;
   // CSS scale the deck is rendered at (set by DeckScaler). Forwarded to the
   // tonearm so drag-to-seek converts pointer px correctly. Defaults to 1.
   scale?: number;
@@ -60,7 +71,6 @@ export interface TurntableVisualProps {
   onTransfer: () => void;
   onLogin: () => void;
   onLogout: () => void;
-  onUnlockRequest?: () => void;
 }
 
 // ─── Vinyl Record SVG ─────────────────────────────────────────────────────
@@ -259,7 +269,6 @@ interface ControlsProps {
   isConnected: boolean;
   isAuthenticated: boolean;
   mode: TurntableMode;
-  locked: boolean;
   progressMs: number;
   durationMs: number;
   onStart: () => void;
@@ -271,7 +280,6 @@ interface ControlsProps {
   onTransfer: () => void;
   onLogin: () => void;
   onLogout: () => void;
-  onUnlockRequest?: () => void;
 }
 
 function ctrlBtn(extra: React.CSSProperties = {}): React.CSSProperties {
@@ -334,10 +342,7 @@ function ControlStrip(p: ControlsProps) {
 
   let authLabel = "CONNECT";
   let authHandler: () => void = p.onLogin;
-  if (p.locked) {
-    authLabel = "🔒 LOCKED";
-    authHandler = () => p.onUnlockRequest?.();
-  } else if (p.isAuthenticated) {
+  if (p.isAuthenticated) {
     authLabel = "LOGOUT";
     authHandler = p.onLogout;
   }
@@ -369,7 +374,7 @@ function ControlStrip(p: ControlsProps) {
         {!isDemo && (
           <button
             onClick={authHandler}
-            aria-label={p.locked ? "Unlock with access code" : p.isAuthenticated ? "Log out of Spotify" : "Connect Spotify"}
+            aria-label={p.isAuthenticated ? "Log out of Spotify" : "Connect Spotify"}
             style={{
               // Darkened from the old #8a6828 top so the #f0d080 label clears WCAG AA
               // 4.5:1 across the whole button (Item 10).
@@ -388,7 +393,7 @@ function ControlStrip(p: ControlsProps) {
             {authLabel}
           </button>
         )}
-        {!isDemo && !p.locked && p.isAuthenticated && !p.isConnected && (
+        {!isDemo && p.isAuthenticated && !p.isConnected && (
           <button
             onClick={p.onTransfer}
             aria-label="Transfer playback to this device"
@@ -608,7 +613,7 @@ export default function TurntableVisual({
   isConnected,
   error,
   mode = "live",
-  locked = false,
+  deckWood = DEFAULT_WOOD,
   scale = 1,
   cueRequestId,
   onCueLand,
@@ -620,7 +625,6 @@ export default function TurntableVisual({
   onTransfer,
   onLogin,
   onLogout,
-  onUnlockRequest,
 }: TurntableVisualProps) {
   const deckRef = useRef<HTMLDivElement>(null);
   const isPlaying = track?.isPlaying ?? false;
@@ -1104,7 +1108,15 @@ export default function TurntableVisual({
         minWidth: 560,
       }}
     >
-      {/* Deck surface — coordinate space for the tonearm geometry */}
+      {/* Deck surface — coordinate space for the tonearm geometry. The wood
+          finish (WOODS[deckWood]) is the flat plinth fill: color tile on the
+          bottom, the pre-existing highlight wash layered on top of it (both
+          as this element's own background), then the normal map composited
+          as a blended overlay CHILD just below — so it paints above the
+          highlight and the grain catches it — and finally the platter/
+          controls/tonearm (later children) render on top of all of it. The
+          brass edge, vignette + shadows on the outer .deck-region are
+          untouched — only this flat fill is replaced. */}
       <div
         ref={deckRef}
         style={{
@@ -1112,13 +1124,32 @@ export default function TurntableVisual({
           padding: "24px 20px 20px 24px",
           backgroundImage: [
             "linear-gradient(160deg, rgba(120,80,30,0.15) 0%, rgba(60,35,10,0.2) 100%)",
-            "repeating-linear-gradient(85deg, transparent, transparent 22px, rgba(0,0,0,0.03) 22px, rgba(0,0,0,0.03) 23px)",
+            `url(${WOODS[deckWood].color})`,
           ].join(", "),
+          backgroundSize: `auto, ${WOOD_TILE_PX}px ${WOOD_TILE_PX}px`,
+          backgroundRepeat: "no-repeat, repeat",
           display: "flex",
           alignItems: "center",
           gap: 0,
         }}
       >
+        {/* Normal-map overlay: adds grain that catches the highlight above.
+            Decorative only; sits between the deck's own background and the
+            real controls (next siblings), never intercepts pointer events. */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `url(${WOODS[deckWood].normal})`,
+            backgroundSize: `${WOOD_TILE_PX}px ${WOOD_TILE_PX}px`,
+            backgroundRepeat: "repeat",
+            mixBlendMode: WOOD_NORMAL_BLEND,
+            opacity: WOOD_NORMAL_OPACITY,
+            pointerEvents: "none",
+          }}
+        />
+
         {/* Platter */}
         <div style={{ position: "relative", flexShrink: 0 }}>
           <div
@@ -1237,7 +1268,7 @@ export default function TurntableVisual({
 
         {/* Tonearm overlay (absolute, positioned at the pivot). Grabbing the arm
             is the primary play gesture (Item 1), so it obeys the same enablement
-            as the transport buttons — a locked/disconnected deck has a dead arm. */}
+            as the transport buttons — a disconnected deck has a dead arm. */}
         <Tonearm
           angleDeg={arm.angleDeg}
           lifted={arm.lifted}
@@ -1255,7 +1286,6 @@ export default function TurntableVisual({
         isConnected={isConnected}
         isAuthenticated={isAuthenticated}
         mode={mode}
-        locked={locked}
         progressMs={liveProgressMs}
         durationMs={track?.durationMs ?? 0}
         onStart={arm.start}
@@ -1267,7 +1297,6 @@ export default function TurntableVisual({
         onTransfer={onTransfer}
         onLogin={onLogin}
         onLogout={onLogout}
-        onUnlockRequest={onUnlockRequest}
       />
 
       {error && (

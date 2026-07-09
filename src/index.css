@@ -42,81 +42,8 @@ body {
   border-radius: 2px;
 }
 
-/* Demo explainer + CC credits + live access text now live in InfoButtons.tsx
-   popovers (a round-icon row under the deck), so their old caption styles were
-   removed. */
-
-/* Passphrase prompt (live page) */
-.gate-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(10, 8, 6, 0.78);
-  z-index: 50;
-}
-.gate-card {
-  background: linear-gradient(160deg, #3e2808 0%, #1e1008 100%);
-  border: 1px solid #6a4e18;
-  border-radius: 10px;
-  padding: 24px 28px;
-  width: 320px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
-}
-.gate-card h2 {
-  margin: 0;
-  font-size: 0.8rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #e8c870;
-  font-family: "DM Mono", monospace;
-}
-.gate-card p {
-  margin: 0;
-  font-size: 0.72rem;
-  color: #a08858;
-  line-height: 1.4;
-}
-.gate-card input {
-  background: #1a1208;
-  border: 1px solid #6a4e18;
-  border-radius: 5px;
-  padding: 9px 11px;
-  color: #f0d080;
-  font-family: "DM Mono", monospace;
-  font-size: 0.85rem;
-}
-.gate-card input:focus {
-  outline: none;
-  border-color: #c49a3c;
-}
-.gate-row {
-  display: flex;
-  gap: 8px;
-}
-.gate-card button {
-  flex: 1;
-  background: linear-gradient(180deg, #8a6828 0%, #6a4e18 100%);
-  border: 1px solid #c49a3c;
-  border-radius: 5px;
-  padding: 8px;
-  color: #f0d080;
-  font-family: "DM Mono", monospace;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.gate-card button.ghost {
-  background: transparent;
-  color: #a08858;
-}
-.gate-err {
-  color: #ff6040;
-  font-size: 0.68rem;
-  font-family: "DM Mono", monospace;
-}
+/* Demo explainer + CC credits + live access text now live as sections inside
+   the SETTINGS drawer (SettingsPanel.tsx), so their old caption styles were
+   removed. The passphrase prompt (live page) was removed along with
+   VITE_STUDIO_PASS — access to /live is enforced solely by Spotify's
+   allowlist — so its .gate-* styles were removed too. */

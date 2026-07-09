@@ -3,12 +3,14 @@
 // (useDemoPlayer). No Spotify, no auth — anyone visiting sees it "playing a set."
 //
 // The deck is wrapped in DeckScaler so it fills most of the viewport on any
-// screen. The old always-visible explainer + CC-attribution captions are now
-// tucked into a compact row of round info buttons under the deck.
+// screen. About + CC-attribution credits live in the SETTINGS drawer (mirrors
+// Live's Settings tab) rather than as always-visible captions.
 
+import { useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import InfoButtonRow, { InfoItem, infoMutedStyle } from "../components/InfoButtons";
+import SettingsPanel, { SettingsSection } from "../components/SettingsPanel";
+import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
 import { DEMO_TRACKS } from "../lib/demoMeta";
 
@@ -16,16 +18,16 @@ const noop = () => {};
 
 export default function Home() {
   const demo = useDemoPlayer();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // De-duplicated attribution lines (CC licenses require visible credit).
   const credits = Array.from(
     new Set(DEMO_TRACKS.map((t) => t.attribution).filter(Boolean))
   );
 
-  const infoItems: InfoItem[] = [
+  const settingsSections: SettingsSection[] = [
     {
       id: "about",
-      icon: "ⓘ",
       label: "About",
       content: (
         <>
@@ -39,14 +41,13 @@ export default function Home() {
   ];
 
   if (credits.length > 0) {
-    infoItems.push({
+    settingsSections.push({
       id: "credits",
-      icon: "♪",
       label: "Credits",
       content: (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {credits.map((c, i) => (
-            <div key={i} style={infoMutedStyle()}>
+            <div key={i} style={{ color: "#a08040", fontSize: 11, lineHeight: 1.5 }}>
               {c}
             </div>
           ))}
@@ -57,8 +58,11 @@ export default function Home() {
 
   return (
     <div className="stage">
-      <DeckScaler>
+      <DeckScaler extraWidth={TAB_RESERVE}>
         {(scale) => (
+          // 560-wide relative box = the deck; the SETTINGS tab pins to its
+          // right edge and lives INSIDE the scaled layer so it stays attached
+          // as the deck shrinks. (The drawer itself renders outside — fixed.)
           <div style={{ position: "relative", display: "flex", width: 560 }}>
             <TurntableVisual
               mode="demo"
@@ -75,11 +79,36 @@ export default function Home() {
               onLogin={noop}
               onLogout={noop}
             />
+
+            {/* SETTINGS: single vertical brass tab on the deck's right edge —
+                mirrors Live's tab column, minus LIBRARY (no account here). */}
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "100%",
+                transform: "translateY(-50%)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              <DeckTab
+                label="⚙ Settings"
+                ariaLabel="Open settings"
+                expanded={settingsOpen}
+                onClick={() => setSettingsOpen((o) => !o)}
+              />
+            </div>
           </div>
         )}
       </DeckScaler>
 
-      <InfoButtonRow items={infoItems} />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        sections={settingsSections}
+      />
     </div>
   );
 }
