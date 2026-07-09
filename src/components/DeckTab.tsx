@@ -24,7 +24,9 @@ export default function DeckTab({
       aria-label={ariaLabel}
       aria-expanded={expanded}
       style={{
-        background: "linear-gradient(180deg, var(--m-deep, #8a6828) 0%, var(--m-plate-top, #6a4e18) 100%)",
+        // plateTop→plateBottom (not deep→plateTop) so the label clears WCAG AA
+        // across the whole tab, matching the deck's other labeled plates.
+        background: "linear-gradient(180deg, var(--m-plate-top, #6a4e18) 0%, var(--m-plate-bottom, #523a10) 100%)",
         border: "1px solid var(--m-base, #c49a3c)",
         borderLeft: "none", // merge into the deck's edge
         borderRadius: "0 8px 8px 0", // rounded OUTER corners

@@ -17,7 +17,9 @@ const WALNUT_DARK = "#2a1c08";
 const WALNUT_DEEP = "#3e2808";
 const BRASS = "var(--m-base, #c49a3c)";
 const BRASS_LIGHT = "var(--m-bright, #e8c870)";
-const BRASS_DIM = "var(--m-dim, #a08040)";
+// dim-text role: muted label tone that still clears WCAG AA on the walnut
+// drawer background (the plain dim role doesn't — Item 7 audit).
+const BRASS_DIM = "var(--m-dim-text, #b8945c)";
 const BORDER_DARK = "#3a2808";
 const MONO = "'Courier New', monospace";
 

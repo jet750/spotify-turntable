@@ -20,7 +20,9 @@ const WALNUT_DARK = "#2a1c08";
 const WALNUT_DEEP = "#3e2808";
 const BRASS = "var(--m-base, #c49a3c)";
 const BRASS_LIGHT = "var(--m-bright, #e8c870)";
-const BRASS_DIM = "var(--m-dim, #a08040)";
+// dim-text role: muted label tone that still clears WCAG AA on the walnut
+// drawer background (the plain dim role doesn't — Item 7 audit).
+const BRASS_DIM = "var(--m-dim-text, #b8945c)";
 const BORDER_DARK = "#3a2808";
 const MONO = "'Courier New', monospace";
 
@@ -184,12 +186,12 @@ export default function BrowsePanel({ spotify, open, onClose }: BrowsePanelProps
                 style={{
                   flex: 1,
                   background: active
-                    ? "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)"
+                    ? "linear-gradient(180deg, var(--m-plate-top, #6a4e18) 0%, var(--m-plate-bottom, #523a10) 100%)"
                     : "transparent",
                   border: `1px solid ${active ? BRASS : BORDER_DARK}`,
                   borderRadius: 4,
                   padding: "6px 4px",
-                  color: active ? BRASS_LIGHT : BRASS_DIM,
+                  color: active ? "var(--m-brightest, #f0d080)" : BRASS_DIM,
                   fontFamily: MONO,
                   fontSize: 10, // five tabs now share the rail (Item 5)
                   letterSpacing: "0.08em",
@@ -316,11 +318,11 @@ function NowPlayingView({
             width: "100%",
             aspectRatio: "1 / 1",
             borderRadius: 6,
-            background: "radial-gradient(circle at 35% 30%, #e8c870, #c49a3c 55%, #8a6820)",
+            background: "radial-gradient(circle at 35% 30%, var(--m-bright, #e8c870), var(--m-base, #c49a3c) 55%, var(--m-deep, #8a6820))",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "#3d2100",
+            color: "var(--m-text-on, #3d2100)",
             fontSize: 48,
           }}
         >
@@ -525,11 +527,11 @@ function CardCover({ card }: { card: BrowseCard }) {
         width: "100%",
         aspectRatio: "1 / 1",
         borderRadius: 4,
-        background: "radial-gradient(circle at 35% 30%, #e8c870, #c49a3c 55%, #8a6820)",
+        background: "radial-gradient(circle at 35% 30%, var(--m-bright, #e8c870), var(--m-base, #c49a3c) 55%, var(--m-deep, #8a6820))",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#3d2100",
+        color: "var(--m-text-on, #3d2100)",
         fontSize: 26,
       }}
     >
@@ -578,11 +580,11 @@ function ReconnectNotice({ onReconnect }: { onReconnect: () => void }) {
       <button
         onClick={onReconnect}
         style={{
-          background: "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)",
+          background: "linear-gradient(180deg, var(--m-plate-top, #6a4e18) 0%, var(--m-plate-bottom, #523a10) 100%)",
           border: `1px solid ${BRASS}`,
           borderRadius: 3,
           padding: "6px 14px",
-          color: "#f0d080",
+          color: "var(--m-brightest, #f0d080)",
           fontSize: 11,
           fontFamily: MONO,
           letterSpacing: "0.14em",

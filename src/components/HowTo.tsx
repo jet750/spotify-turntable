@@ -6,10 +6,11 @@
 
 import { useRef, useState } from "react";
 
-// Metal-aware accents (see metals.ts); walnut tones stay fixed.
+// Metal-aware accents (see metals.ts); walnut tones stay fixed. DIM uses the
+// dim-text role so the pager arrows clear WCAG AA on the drawer walnut.
 const BRIGHT = "var(--m-bright, #e8c870)";
 const BASE = "var(--m-base, #c49a3c)";
-const DIM = "var(--m-dim, #a08040)";
+const DIM = "var(--m-dim-text, #b8945c)";
 const SHADE = "var(--m-shade, #6a5018)";
 const MONO = "'Courier New', monospace";
 

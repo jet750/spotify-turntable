@@ -244,7 +244,7 @@ function BrowseFallback() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#a08040",
+        color: "var(--m-dim-text, #b8945c)",
         fontFamily: "'Courier New', monospace",
         fontSize: 12,
         letterSpacing: "0.2em",

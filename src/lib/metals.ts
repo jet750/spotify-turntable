@@ -15,7 +15,11 @@ export interface MetalPalette {
   base: string; // the main trim tone (brass #c49a3c)
   mid: string; // slightly lighter base — arm tube, icons (brass #d4a843)
   accent: string; // enabled transport glyphs (brass #e0b450)
-  dim: string; // muted accents, secondary labels (brass #a07828)
+  dim: string; // muted accents on DARK walnut only (brass #a07828)
+  // Muted-but-readable text on the walnut drawer/deck surfaces — every value
+  // clears WCAG AA 4.5:1 on #3e2808 (the lightest walnut a label sits on).
+  // Use this for secondary TEXT; `dim` is for non-text accents.
+  dimText: string;
   deep: string; // deep shade of the metal (brass #8a6820)
   detail: string; // small arm hardware (brass #b08020)
   shade: string; // disabled/inactive metal (brass #6a5018)
@@ -37,6 +41,7 @@ export const METALS: Record<MetalName, MetalPalette> = {
     mid: "#d4a843",
     accent: "#e0b450",
     dim: "#a07828",
+    dimText: "#b8945c",
     deep: "#8a6820",
     detail: "#b08020",
     shade: "#6a5018",
@@ -56,6 +61,7 @@ export const METALS: Record<MetalName, MetalPalette> = {
     mid: "#c6ccd5",
     accent: "#d2d7df",
     dim: "#8d939e",
+    dimText: "#a2a9b4",
     deep: "#6a707c",
     detail: "#8b929e",
     shade: "#565c66",
@@ -72,8 +78,11 @@ export const METALS: Record<MetalName, MetalPalette> = {
     brightest: "#efc094",
     base: "#b07a44",
     mid: "#c08850",
-    accent: "#cd9660",
+    // Brighter than the metal's natural mid-tone: this is enabled-glyph TEXT
+    // on the control strip and must clear 4.5:1 on #5a3e1e (Item 7 audit).
+    accent: "#dcaa78",
     dim: "#8f6236",
+    dimText: "#c49058",
     deep: "#744e24",
     detail: "#9a662c",
     shade: "#5c421e",
@@ -99,6 +108,7 @@ export function metalCssVars(name: MetalName): Record<string, string> {
     "--m-mid": m.mid,
     "--m-accent": m.accent,
     "--m-dim": m.dim,
+    "--m-dim-text": m.dimText,
     "--m-deep": m.deep,
     "--m-detail": m.detail,
     "--m-shade": m.shade,

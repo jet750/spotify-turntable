@@ -69,7 +69,7 @@ export default function Home() {
       content: (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {credits.map((c, i) => (
-            <div key={i} style={{ color: "#a08040", fontSize: 11, lineHeight: 1.5 }}>
+            <div key={i} style={{ color: "var(--m-dim-text, #b8945c)", fontSize: 11, lineHeight: 1.5 }}>
               {c}
             </div>
           ))}

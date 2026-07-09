@@ -516,7 +516,9 @@ function ControlStrip(p: ControlsProps) {
       {/* Right: model plate */}
       <div
         style={{
-          background: `linear-gradient(180deg, ${M.base} 0%, ${M.dim} 100%)`,
+          // Re-graded lighter (was base→dim) so the engraved dark text clears
+          // WCAG AA on the whole plate (Item 7 audit).
+          background: `linear-gradient(180deg, ${M.mid} 0%, ${M.base} 100%)`,
           border: `1px solid ${M.bright}`,
           borderRadius: 3,
           padding: "5px 12px",
@@ -1261,7 +1263,7 @@ export default function TurntableVisual({
             <div
               style={{
                 fontSize: "0.42em",
-                color: noise.bedEnabled ? M.textOn : M.dim,
+                color: noise.bedEnabled ? M.textOn : M.brightest,
                 background: noise.bedEnabled ? M.base : "transparent",
                 border: noise.bedEnabled ? "none" : `1px solid ${M.shade}`,
                 borderRadius: 2,
@@ -1280,7 +1282,9 @@ export default function TurntableVisual({
               position: "absolute",
               bottom: 20,
               right: 10,
-              background: `linear-gradient(180deg, ${M.deep} 0%, ${M.plateTop} 100%)`,
+              // Re-graded darker (was deep→plateTop) so the brightest label
+              // clears WCAG AA on the whole plate, matching CONNECT/CRACKLE.
+              background: `linear-gradient(180deg, ${M.plateTop} 0%, ${M.plateBottom} 100%)`,
               border: `1px solid ${M.base}`,
               borderRadius: 4,
               padding: "6px 10px",
@@ -1305,7 +1309,9 @@ export default function TurntableVisual({
                     style={{
                       fontSize: "0.5em",
                       fontFamily: "'Courier New', monospace",
-                      color: active ? M.textOn : M.dim,
+                      // Inactive reads muted via the thin border + no fill; the
+                      // TEXT stays brightest so it clears AA on the plate.
+                      color: active ? M.textOn : M.brightest,
                       background: active ? M.base : "transparent",
                       border: active ? `1px solid ${M.bright}` : `1px solid ${M.shade}`,
                       borderRadius: 2,
@@ -1318,7 +1324,7 @@ export default function TurntableVisual({
                 );
               })}
             </div>
-            <div style={{ fontSize: "0.38em", color: M.dim, marginTop: 3, letterSpacing: "0.1em" }}>RPM</div>
+            <div style={{ fontSize: "0.38em", color: M.brightest, marginTop: 3, letterSpacing: "0.1em" }}>RPM</div>
           </div>
         </div>
 
