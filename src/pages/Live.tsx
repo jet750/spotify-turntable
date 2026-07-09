@@ -8,11 +8,12 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { SettingsSection, WoodPicker } from "../components/SettingsPanel";
+import SettingsPanel, { MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import { useSpotify } from "../lib/useSpotify";
 import type { PlayContextOpts } from "../lib/useSpotify";
 import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
+import { loadSavedMetal, metalCssVars, saveMetal, MetalName } from "../lib/metals";
 
 // Code-split the LIBRARY drawer (Item 8): it + its data hook (useSpotifyLibrary)
 // stay out of the initial bundle and only load on first open. Default export ->
@@ -41,6 +42,11 @@ export default function Live() {
   const handleWoodChange = (next: WoodName) => {
     setWood(next);
     saveWood(next);
+  };
+  const [metal, setMetal] = useState<MetalName>(() => loadSavedMetal());
+  const handleMetalChange = (next: MetalName) => {
+    setMetal(next);
+    saveMetal(next);
   };
 
   // Browse is live-only: it needs a connected account.
@@ -73,10 +79,10 @@ export default function Live() {
       label: "About",
       content: (
         <>
-          <b style={{ color: "#e8c870" }}>Live mode.</b> This turntable is wired to
+          <b style={{ color: "var(--m-bright, #e8c870)" }}>Live mode.</b> This turntable is wired to
           my real Spotify account through the Web&nbsp;Playback&nbsp;SDK — the
           platter, tonearm and label track whatever&apos;s actually playing. Open{" "}
-          <b style={{ color: "#e8c870" }}>LIBRARY</b> on the right edge to pick an
+          <b style={{ color: "var(--m-bright, #e8c870)" }}>LIBRARY</b> on the right edge to pick an
           album, playlist or track and it starts right here.
         </>
       ),
@@ -87,8 +93,8 @@ export default function Live() {
       content: (
         <>
           Playback runs through a connected Spotify&nbsp;
-          <b style={{ color: "#e8c870" }}>Premium</b> account. Hit{" "}
-          <b style={{ color: "#e8c870" }}>CONNECT</b> and authorize Spotify — the
+          <b style={{ color: "var(--m-bright, #e8c870)" }}>Premium</b> account. Hit{" "}
+          <b style={{ color: "var(--m-bright, #e8c870)" }}>CONNECT</b> and authorize Spotify — the
           deck then plays through that account on this device. Access is
           controlled by the Spotify allowlist: only whitelisted accounts can
           complete authorization.
@@ -100,10 +106,17 @@ export default function Live() {
       label: "Deck",
       content: <WoodPicker wood={wood} onWoodChange={handleWoodChange} />,
     },
+    {
+      id: "metal",
+      label: "Metal",
+      content: <MetalPicker metal={metal} onMetalChange={handleMetalChange} />,
+    },
   ];
 
   return (
-    <div className="stage">
+    // The stage carries the --m-* custom properties (metals.ts) that every
+    // metal-toned element below — deck chrome, tabs, drawers — resolves.
+    <div className="stage" style={metalCssVars(metal) as React.CSSProperties}>
       <DeckScaler extraWidth={TAB_RESERVE}>
         {(scale) => (
           // 560-wide relative box = the deck; the LIBRARY/SETTINGS tabs pin to
@@ -202,7 +215,7 @@ function BrowseFallback() {
         width: 360,
         maxWidth: "100vw",
         background: "linear-gradient(160deg, #3e2808 0%, #2a1c08 100%)",
-        borderLeft: "2px solid #c49a3c",
+        borderLeft: "2px solid var(--m-base, #c49a3c)",
         boxShadow: "-12px 0 48px rgba(0,0,0,0.6)",
         display: "flex",
         alignItems: "center",

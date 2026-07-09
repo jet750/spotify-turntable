@@ -39,6 +39,29 @@ const BLUR_MAX_OPACITY = 0.3; // ghost opacity at full blur (45 RPM)
 const BLUR_33_LEVEL = 0.7; // fraction of full blur while at 33⅓
 const BLUR_FADE_MS = 700; // blur fade-in/out ≈ the spin-up feel
 
+// ─── Metal finish (Settings → Metal) ─────────────────────────────────────────
+// Every brass-family tone routes through a CSS custom property set on the page
+// stage (see metals.ts / metalCssVars); the fallback is the classic brass so
+// the deck renders identically if no stage sets the vars. SVG gradient stops
+// read these via style={{ stopColor }} — presentation attributes can't carry
+// var() — everything else uses them like any other color string.
+const M = {
+  bright: "var(--m-bright, #e8c870)",
+  brightest: "var(--m-brightest, #f0d080)",
+  base: "var(--m-base, #c49a3c)",
+  mid: "var(--m-mid, #d4a843)",
+  accent: "var(--m-accent, #e0b450)",
+  dim: "var(--m-dim, #a07828)",
+  deep: "var(--m-deep, #8a6820)",
+  detail: "var(--m-detail, #b08020)",
+  shade: "var(--m-shade, #6a5018)",
+  plateTop: "var(--m-plate-top, #6a4e18)",
+  plateBottom: "var(--m-plate-bottom, #523a10)",
+  weight: "var(--m-weight, #8a7040)",
+  textOn: "var(--m-text-on, #3d2100)",
+  glow: (a: number) => `rgba(var(--m-glow-rgb, 232,200,112), ${a})`,
+};
+
 export interface TurntableVisualProps {
   track: SpotifyTrack | null;
   isAuthenticated: boolean;
@@ -234,28 +257,28 @@ function Tonearm({
         <svg width="140" height="260" viewBox="0 0 140 260" overflow="visible">
           <defs>
             <radialGradient id="pivotGrad" cx="40%" cy="35%">
-              <stop offset="0%" stopColor="#e8c870" />
-              <stop offset="50%" stopColor="#c49a3c" />
-              <stop offset="100%" stopColor="#8a6820" />
+              <stop offset="0%" style={{ stopColor: M.bright }} />
+              <stop offset="50%" style={{ stopColor: M.base }} />
+              <stop offset="100%" style={{ stopColor: M.deep }} />
             </radialGradient>
             <linearGradient id="armGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#d4a843" />
-              <stop offset="50%" stopColor="#c49a3c" />
-              <stop offset="100%" stopColor="#a07828" />
+              <stop offset="0%" style={{ stopColor: M.mid }} />
+              <stop offset="50%" style={{ stopColor: M.base }} />
+              <stop offset="100%" style={{ stopColor: M.dim }} />
             </linearGradient>
           </defs>
 
-          <line x1="118" y1="38" x2="134" y2="18" stroke="#b08020" strokeWidth="3" strokeLinecap="round" />
-          <circle cx="134" cy="14" r="5" fill="#c49a3c" stroke="#e8c870" strokeWidth="1" />
+          <line x1="118" y1="38" x2="134" y2="18" style={{ stroke: M.detail }} strokeWidth="3" strokeLinecap="round" />
+          <circle cx="134" cy="14" r="5" style={{ fill: M.base, stroke: M.bright }} strokeWidth="1" />
           <line x1="118" y1="38" x2="28" y2="215" stroke="url(#armGrad)" strokeWidth="5" strokeLinecap="round" />
-          <line x1="28" y1="215" x2="18" y2="228" stroke="#c49a3c" strokeWidth="4" strokeLinecap="round" />
-          <rect x="8" y="224" width="22" height="14" rx="3" fill="#b08020" stroke="#d4a843" strokeWidth="1" />
-          <rect x="10" y="237" width="18" height="8" rx="2" fill="#6a5018" stroke="#b08020" strokeWidth="0.8" />
+          <line x1="28" y1="215" x2="18" y2="228" style={{ stroke: M.base }} strokeWidth="4" strokeLinecap="round" />
+          <rect x="8" y="224" width="22" height="14" rx="3" style={{ fill: M.detail, stroke: M.mid }} strokeWidth="1" />
+          <rect x="10" y="237" width="18" height="8" rx="2" style={{ fill: M.shade, stroke: M.detail }} strokeWidth="0.8" />
           <line x1="19" y1="245" x2="19" y2="252" stroke="#888" strokeWidth="1.5" strokeLinecap="round" />
-          <rect x="100" y="50" width="36" height="24" rx="4" fill="#8a7040" stroke="#c49a3c" strokeWidth="1" />
-          <circle cx="118" cy="38" r="18" fill="url(#pivotGrad)" stroke="#e8d080" strokeWidth="1.5" />
-          <circle cx="118" cy="38" r="10" fill="#8a6820" stroke="#c49a3c" strokeWidth="1" />
-          <circle cx="118" cy="38" r="4" fill="#c49a3c" />
+          <rect x="100" y="50" width="36" height="24" rx="4" style={{ fill: M.weight, stroke: M.base }} strokeWidth="1" />
+          <circle cx="118" cy="38" r="18" fill="url(#pivotGrad)" style={{ stroke: M.brightest }} strokeWidth="1.5" />
+          <circle cx="118" cy="38" r="10" style={{ fill: M.deep, stroke: M.base }} strokeWidth="1" />
+          <circle cx="118" cy="38" r="4" style={{ fill: M.base }} />
         </svg>
       </div>
     </div>
@@ -286,7 +309,7 @@ function ctrlBtn(extra: React.CSSProperties = {}): React.CSSProperties {
   return {
     background: "none",
     border: "none",
-    color: "#d4a843",
+    color: M.mid,
     fontSize: "1.05em",
     cursor: "pointer",
     padding: "4px 6px",
@@ -378,11 +401,11 @@ function ControlStrip(p: ControlsProps) {
             style={{
               // Darkened from the old #8a6828 top so the #f0d080 label clears WCAG AA
               // 4.5:1 across the whole button (Item 10).
-              background: "linear-gradient(180deg, #6a4e18 0%, #523a10 100%)",
-              border: "1px solid #c49a3c",
+              background: `linear-gradient(180deg, ${M.plateTop} 0%, ${M.plateBottom} 100%)`,
+              border: `1px solid ${M.base}`,
               borderRadius: 3,
               padding: "4px 10px",
-              color: "#f0d080",
+              color: M.brightest,
               fontSize: "0.55em",
               fontFamily: "'Courier New', monospace",
               letterSpacing: "0.14em",
@@ -399,10 +422,10 @@ function ControlStrip(p: ControlsProps) {
             aria-label="Transfer playback to this device"
             style={{
               background: "transparent",
-              border: "1px solid #c49a3c",
+              border: `1px solid ${M.base}`,
               borderRadius: 3,
               padding: "4px 8px",
-              color: "#e0b450",
+              color: M.accent,
               fontSize: "0.5em",
               fontFamily: "'Courier New', monospace",
               letterSpacing: "0.1em",
@@ -423,19 +446,19 @@ function ControlStrip(p: ControlsProps) {
           aria-label={p.armState === "lifted" ? "Drop the tonearm" : "Lift the tonearm"}
           title="Cue (lift / drop the arm)"
           style={ctrlBtn({
-            border: "1px solid #8a6828",
+            border: `1px solid ${M.deep}`,
             borderRadius: 3,
             padding: "3px 8px",
             fontSize: "0.5em",
             letterSpacing: "0.12em",
-            color: canCue ? "#e8c870" : "#6a5018",
+            color: canCue ? M.bright : M.shade,
             cursor: canCue ? "pointer" : "default",
           })}
         >
           {p.armState === "lifted" ? "DROP" : "LIFT"}
         </button>
 
-        <button onClick={p.onPrev} disabled={!seekEnabled} aria-label="Previous track" style={ctrlBtn({ color: seekEnabled ? "#e0b450" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}>
+        <button onClick={p.onPrev} disabled={!seekEnabled} aria-label="Previous track" style={ctrlBtn({ color: seekEnabled ? M.accent : M.shade, cursor: seekEnabled ? "pointer" : "default" })}>
           ⏮
         </button>
 
@@ -449,10 +472,10 @@ function ControlStrip(p: ControlsProps) {
             height: 44,
             borderRadius: "50%",
             background: seekEnabled
-              ? "radial-gradient(circle at 35% 35%, #e8c870, #c49a3c, #8a6820)"
+              ? `radial-gradient(circle at 35% 35%, ${M.bright}, ${M.base}, ${M.deep})`
               : "radial-gradient(circle at 35% 35%, #6a5818, #4a3810, #2a1800)",
-            border: `2px solid ${seekEnabled ? "#e8d080" : "#4a3800"}`,
-            boxShadow: seekEnabled ? "0 3px 10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,220,100,0.3)" : "none",
+            border: `2px solid ${seekEnabled ? M.brightest : "#4a3800"}`,
+            boxShadow: seekEnabled ? `0 3px 10px rgba(0,0,0,0.5), inset 0 1px 0 ${M.glow(0.3)}` : "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -460,7 +483,7 @@ function ControlStrip(p: ControlsProps) {
             transition: "all 0.2s",
           }}
         >
-          <span style={{ fontSize: "0.95em", color: seekEnabled ? "#3d2100" : "#2a1800" }}>
+          <span style={{ fontSize: "0.95em", color: seekEnabled ? M.textOn : "#2a1800" }}>
             {running ? "■" : "▶"}
           </span>
         </button>
@@ -472,7 +495,7 @@ function ControlStrip(p: ControlsProps) {
           disabled={!seekEnabled}
           aria-label="Next track (hold to fast-forward)"
           title="Tap = next track · hold = fast-forward"
-          style={ctrlBtn({ color: seekEnabled ? "#e0b450" : "#6a5018", cursor: seekEnabled ? "pointer" : "default" })}
+          style={ctrlBtn({ color: seekEnabled ? M.accent : M.shade, cursor: seekEnabled ? "pointer" : "default" })}
         >
           ⏭
         </button>
@@ -481,14 +504,14 @@ function ControlStrip(p: ControlsProps) {
       {/* Right: model plate */}
       <div
         style={{
-          background: "linear-gradient(180deg, #c49a3c 0%, #a07828 100%)",
-          border: "1px solid #e8c870",
+          background: `linear-gradient(180deg, ${M.base} 0%, ${M.dim} 100%)`,
+          border: `1px solid ${M.bright}`,
           borderRadius: 3,
           padding: "5px 12px",
           textAlign: "center",
         }}
       >
-        <div style={{ fontSize: "0.5em", color: "#3d2100", fontFamily: "'Courier New', monospace", letterSpacing: "0.15em" }}>
+        <div style={{ fontSize: "0.5em", color: M.textOn, fontFamily: "'Courier New', monospace", letterSpacing: "0.15em" }}>
           OB-1974
         </div>
         <div style={{ fontSize: "0.4em", color: "#140a00", fontFamily: "'Courier New', monospace" }}>
@@ -560,7 +583,7 @@ function TrackInfo({
     <div style={{ padding: "8px 20px 10px", background: "#2a1c08", borderTop: "1px solid #3a2808" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
         <div>
-          <span style={{ fontSize: "0.7em", color: "#e8c870", fontFamily: "Georgia, serif", fontWeight: "bold" }}>{track.name}</span>
+          <span style={{ fontSize: "0.7em", color: M.bright, fontFamily: "Georgia, serif", fontWeight: "bold" }}>{track.name}</span>
           <span style={{ fontSize: "0.55em", color: "#b0905a", fontFamily: "'Courier New', monospace", marginLeft: 8 }}>{track.artist}</span>
         </div>
         <span style={{ fontSize: "0.5em", color: "#b89a5e", fontFamily: "'Courier New', monospace" }}>
@@ -596,7 +619,7 @@ function TrackInfo({
               width: "100%",
               transformOrigin: "left center",
               transform: `scaleX(${Math.max(0, Math.min(progress / 100, 1))})`,
-              background: "linear-gradient(90deg, #c49a3c, #e8c870)",
+              background: `linear-gradient(90deg, ${M.base}, ${M.bright})`,
               willChange: "transform",
             }}
           />
@@ -1101,7 +1124,7 @@ export default function TurntableVisual({
         flexDirection: "column",
         background: "linear-gradient(160deg, #7a5228 0%, #5a3c18 40%, #3e2808 100%)",
         borderRadius: 12,
-        boxShadow: "0 12px 48px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,200,80,0.12)",
+        boxShadow: `0 12px 48px rgba(0,0,0,0.7), inset 0 1px 0 ${M.glow(0.12)}`,
         border: "2px solid #3a2808",
         overflow: "hidden",
         fontFamily: "'Courier New', monospace",
@@ -1163,7 +1186,7 @@ export default function TurntableVisual({
               borderRadius: "50%",
               background: "radial-gradient(circle, #2a2018 0%, #181008 100%)",
               border: "2px solid #3a2a10",
-              boxShadow: "0 6px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,180,60,0.06)",
+              boxShadow: `0 6px 24px rgba(0,0,0,0.8), inset 0 1px 0 ${M.glow(0.06)}`,
             }}
           />
           <div style={{ position: "relative", zIndex: 2, width: 320, height: 320 }}>
@@ -1190,8 +1213,8 @@ export default function TurntableVisual({
               position: "absolute",
               bottom: 108,
               right: 10,
-              background: "linear-gradient(180deg, #6a4e18 0%, #523a10 100%)",
-              border: `1px solid ${noise.bedEnabled ? "#e8c870" : "#8a6828"}`,
+              background: `linear-gradient(180deg, ${M.plateTop} 0%, ${M.plateBottom} 100%)`,
+              border: `1px solid ${noise.bedEnabled ? M.bright : M.deep}`,
               borderRadius: 4,
               padding: "5px 10px",
               textAlign: "center",
@@ -1199,15 +1222,15 @@ export default function TurntableVisual({
               fontFamily: "'Courier New', monospace",
             }}
           >
-            <div style={{ fontSize: "0.42em", color: "#f0d080", letterSpacing: "0.18em", marginBottom: 3 }}>
+            <div style={{ fontSize: "0.42em", color: M.brightest, letterSpacing: "0.18em", marginBottom: 3 }}>
               CRACKLE
             </div>
             <div
               style={{
                 fontSize: "0.42em",
-                color: noise.bedEnabled ? "#3d2100" : "#a07828",
-                background: noise.bedEnabled ? "#c49a3c" : "transparent",
-                border: noise.bedEnabled ? "none" : "1px solid #6a5018",
+                color: noise.bedEnabled ? M.textOn : M.dim,
+                background: noise.bedEnabled ? M.base : "transparent",
+                border: noise.bedEnabled ? "none" : `1px solid ${M.shade}`,
                 borderRadius: 2,
                 padding: "2px 6px",
                 letterSpacing: "0.12em",
@@ -1224,14 +1247,14 @@ export default function TurntableVisual({
               position: "absolute",
               bottom: 20,
               right: 10,
-              background: "linear-gradient(180deg, #8a6828 0%, #6a4e18 100%)",
-              border: "1px solid #c49a3c",
+              background: `linear-gradient(180deg, ${M.deep} 0%, ${M.plateTop} 100%)`,
+              border: `1px solid ${M.base}`,
               borderRadius: 4,
               padding: "6px 10px",
               textAlign: "center",
             }}
           >
-            <div style={{ fontSize: "0.45em", color: "#f0d080", letterSpacing: "0.2em", marginBottom: 4 }}>SPEED</div>
+            <div style={{ fontSize: "0.45em", color: M.brightest, letterSpacing: "0.2em", marginBottom: 4 }}>SPEED</div>
             <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
               {([false, true] as const).map((fortyFive) => {
                 const active = rpm45 === fortyFive;
@@ -1249,9 +1272,9 @@ export default function TurntableVisual({
                     style={{
                       fontSize: "0.5em",
                       fontFamily: "'Courier New', monospace",
-                      color: active ? "#3d2100" : "#a07828",
-                      background: active ? "#c49a3c" : "transparent",
-                      border: active ? "1px solid #e8c870" : "1px solid #6a5018",
+                      color: active ? M.textOn : M.dim,
+                      background: active ? M.base : "transparent",
+                      border: active ? `1px solid ${M.bright}` : `1px solid ${M.shade}`,
                       borderRadius: 2,
                       padding: "2px 6px",
                       cursor: "pointer",
@@ -1262,7 +1285,7 @@ export default function TurntableVisual({
                 );
               })}
             </div>
-            <div style={{ fontSize: "0.38em", color: "#a07828", marginTop: 3, letterSpacing: "0.1em" }}>RPM</div>
+            <div style={{ fontSize: "0.38em", color: M.dim, marginTop: 3, letterSpacing: "0.1em" }}>RPM</div>
           </div>
         </div>
 

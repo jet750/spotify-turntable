@@ -14,11 +14,13 @@ import { useSpotifyLibrary } from "../lib/useSpotifyLibrary";
 import type { AlbumDetailState, BrowseCard, TabState } from "../lib/useSpotifyLibrary";
 
 // ─── Palette (matches TurntableVisual.tsx) ──────────────────────────────────
+// Metal tones route through the stage's --m-* custom properties (metals.ts)
+// so the drawer chrome follows the selected finish; walnut stays fixed.
 const WALNUT_DARK = "#2a1c08";
 const WALNUT_DEEP = "#3e2808";
-const BRASS = "#c49a3c";
-const BRASS_LIGHT = "#e8c870";
-const BRASS_DIM = "#a08040";
+const BRASS = "var(--m-base, #c49a3c)";
+const BRASS_LIGHT = "var(--m-bright, #e8c870)";
+const BRASS_DIM = "var(--m-dim, #a08040)";
 const BORDER_DARK = "#3a2808";
 const MONO = "'Courier New', monospace";
 

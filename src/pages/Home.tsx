@@ -13,12 +13,16 @@ import SettingsPanel, { SettingsSection } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
 import { DEMO_TRACKS } from "../lib/demoMeta";
+import { loadSavedMetal, metalCssVars } from "../lib/metals";
 
 const noop = () => {};
 
 export default function Home() {
   const demo = useDemoPlayer();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The finish pickers live on /live; the public demo deck just follows the
+  // persisted choice so the unit looks the same across pages.
+  const [metal] = useState(() => loadSavedMetal());
 
   // De-duplicated attribution lines (CC licenses require visible credit).
   const credits = Array.from(
@@ -31,7 +35,7 @@ export default function Home() {
       label: "About",
       content: (
         <>
-          <b style={{ color: "#e8c870" }}>Demo mode.</b> Press play for a shuffled
+          <b style={{ color: "var(--m-bright, #e8c870)" }}>Demo mode.</b> Press play for a shuffled
           set. The full build connects to Spotify via the Web&nbsp;Playback&nbsp;SDK
           and turns this turntable into a real playback device — the platter,
           tonearm and label sync to whatever I&apos;m actually listening to.
@@ -57,7 +61,7 @@ export default function Home() {
   }
 
   return (
-    <div className="stage">
+    <div className="stage" style={metalCssVars(metal) as React.CSSProperties}>
       <DeckScaler extraWidth={TAB_RESERVE}>
         {(scale) => (
           // 560-wide relative box = the deck; the SETTINGS tab pins to its

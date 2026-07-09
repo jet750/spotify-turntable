@@ -37,7 +37,7 @@ body {
    keyboard navigation, so pointer users see no change. Brass ring matches the
    palette and reads against both the walnut deck and the dark stage. */
 :focus-visible {
-  outline: 2px solid #e8c870;
+  outline: 2px solid var(--m-bright, #e8c870);
   outline-offset: 2px;
   border-radius: 2px;
 }

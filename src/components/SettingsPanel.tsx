@@ -7,13 +7,16 @@
 // drawer chrome so the two read as the same piece of hardware.
 
 import { WOODS, WoodName } from "../lib/woods";
+import { METALS, MetalName } from "../lib/metals";
 
 // ─── Palette (matches TurntableVisual.tsx / BrowsePanel.tsx) ───────────────
+// Metal tones route through the stage's --m-* custom properties (metals.ts)
+// so the drawer chrome follows the selected finish; walnut stays fixed.
 const WALNUT_DARK = "#2a1c08";
 const WALNUT_DEEP = "#3e2808";
-const BRASS = "#c49a3c";
-const BRASS_LIGHT = "#e8c870";
-const BRASS_DIM = "#a08040";
+const BRASS = "var(--m-base, #c49a3c)";
+const BRASS_LIGHT = "var(--m-bright, #e8c870)";
+const BRASS_DIM = "var(--m-dim, #a08040)";
 const BORDER_DARK = "#3a2808";
 const MONO = "'Courier New', monospace";
 
@@ -159,6 +162,45 @@ const bodyStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1.55,
 };
+
+// Metal-finish swatch picker — content of Live's "Metal" section. Each disc
+// previews its own palette (radial highlight → base → deep, like the deck's
+// metal buttons), so the row reads as three little machined knobs.
+export function MetalPicker({
+  metal,
+  onMetalChange,
+}: {
+  metal: MetalName;
+  onMetalChange: (metal: MetalName) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 12 }}>
+      {(Object.keys(METALS) as MetalName[]).map((name) => {
+        const m = METALS[name];
+        const active = name === metal;
+        return (
+          <button
+            key={name}
+            onClick={() => onMetalChange(name)}
+            aria-label={`${m.label} metal finish`}
+            aria-pressed={active}
+            title={m.label}
+            style={{
+              width: 48,
+              height: 48,
+              padding: 0,
+              borderRadius: "50%",
+              border: `2px solid ${active ? BRASS_LIGHT : BORDER_DARK}`,
+              boxShadow: active ? `0 0 0 2px rgba(232,200,112,0.35)` : "none",
+              background: `radial-gradient(circle at 35% 30%, ${m.bright}, ${m.base} 55%, ${m.deep})`,
+              cursor: "pointer",
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 // Deck-finish swatch picker — used as the content of Live's "Deck" section.
 export function WoodPicker({
