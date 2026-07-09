@@ -59,7 +59,9 @@ const M = {
   plateBottom: "var(--m-plate-bottom, #523a10)",
   weight: "var(--m-weight, #8a7040)",
   textOn: "var(--m-text-on, #3d2100)",
-  glow: (a: number) => `rgba(var(--m-glow-rgb, 232,200,112), ${a})`,
+  // Glow alphas ride the dim level (Item 5): --dim-glow scales the metal's
+  // shine down in soft/dim mode without touching any text color.
+  glow: (a: number) => `rgba(var(--m-glow-rgb, 232,200,112), calc(${a} * var(--dim-glow, 1)))`,
 };
 
 export interface TurntableVisualProps {
@@ -155,7 +157,9 @@ function VinylRecord({
         transform: `rotate(${rotationDeg}deg)`,
         transition: isSpinning ? "none" : "transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94)",
         display: "block",
-        filter: "drop-shadow(0 8px 32px rgba(0,0,0,0.7))",
+        // brightness() follows the dim level (Item 5) so the bright label art
+        // dims with the room; static per setting, no per-frame filter changes.
+        filter: "drop-shadow(0 8px 32px rgba(0,0,0,0.7)) brightness(var(--dim-record, 1))",
         // Promote the spinning platter+label to its own compositor layer so the
         // per-frame rotation is handled by the GPU, not relayout/repaint (Item 4).
         willChange: "transform",
@@ -1178,6 +1182,20 @@ export default function TurntableVisual({
             backgroundRepeat: "repeat",
             mixBlendMode: WOOD_NORMAL_BLEND,
             opacity: WOOD_NORMAL_OPACITY,
+            pointerEvents: "none",
+          }}
+        />
+
+        {/* Dim-mode scrim (Item 5): darkens the wood surface only. It paints
+            above the wood + grain but below every positioned sibling that
+            follows (platter, plates, tonearm), so control labels keep their
+            full contrast while the plinth reads as a lamp turned down. */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(0, 0, 0, var(--dim-scrim, 0))",
             pointerEvents: "none",
           }}
         />

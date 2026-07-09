@@ -8,6 +8,7 @@
 
 import { WOODS, WoodName } from "../lib/woods";
 import { METALS, MetalName } from "../lib/metals";
+import { DIM_LEVELS, DimLevel } from "../lib/dimmer";
 
 // ─── Palette (matches TurntableVisual.tsx / BrowsePanel.tsx) ───────────────
 // Metal tones route through the stage's --m-* custom properties (metals.ts)
@@ -162,6 +163,45 @@ const bodyStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1.55,
 };
+
+// Brightness chips — content of the "Brightness" section (both pages). Three
+// named levels (see dimmer.ts) rendered like the deck's SPEED chips.
+export function DimPicker({
+  level,
+  onLevelChange,
+}: {
+  level: DimLevel;
+  onLevelChange: (level: DimLevel) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {(Object.keys(DIM_LEVELS) as DimLevel[]).map((name) => {
+        const active = name === level;
+        return (
+          <button
+            key={name}
+            onClick={() => onLevelChange(name)}
+            aria-pressed={active}
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: active ? "#2a1c08" : BRASS_DIM,
+              background: active ? BRASS : "transparent",
+              border: `1px solid ${active ? BRASS_LIGHT : BORDER_DARK}`,
+              borderRadius: 3,
+              padding: "5px 12px",
+              cursor: "pointer",
+            }}
+          >
+            {DIM_LEVELS[name].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // Metal-finish swatch picker — content of Live's "Metal" section. Each disc
 // previews its own palette (radial highlight → base → deep, like the deck's

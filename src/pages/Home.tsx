@@ -9,12 +9,13 @@
 import { useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { SettingsSection } from "../components/SettingsPanel";
+import SettingsPanel, { DimPicker, SettingsSection } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
 import { DEMO_TRACKS } from "../lib/demoMeta";
 import { loadSavedMetal, metalCssVars } from "../lib/metals";
+import { dimCssVars, loadSavedDim, saveDim, DimLevel } from "../lib/dimmer";
 
 const noop = () => {};
 
@@ -22,8 +23,14 @@ export default function Home() {
   const demo = useDemoPlayer();
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The finish pickers live on /live; the public demo deck just follows the
-  // persisted choice so the unit looks the same across pages.
+  // persisted choice so the unit looks the same across pages. Brightness IS
+  // adjustable here — it's a viewing preference, not deck customization.
   const [metal] = useState(() => loadSavedMetal());
+  const [dim, setDim] = useState<DimLevel>(() => loadSavedDim());
+  const handleDimChange = (next: DimLevel) => {
+    setDim(next);
+    saveDim(next);
+  };
 
   // De-duplicated attribution lines (CC licenses require visible credit).
   const credits = Array.from(
@@ -48,6 +55,11 @@ export default function Home() {
       label: "How-To",
       content: <HowToPager />,
     },
+    {
+      id: "brightness",
+      label: "Brightness",
+      content: <DimPicker level={dim} onLevelChange={handleDimChange} />,
+    },
   ];
 
   if (credits.length > 0) {
@@ -67,7 +79,10 @@ export default function Home() {
   }
 
   return (
-    <div className="stage" style={metalCssVars(metal) as React.CSSProperties}>
+    <div
+      className="stage"
+      style={{ ...metalCssVars(metal), ...dimCssVars(dim) } as React.CSSProperties}
+    >
       <DeckScaler extraWidth={TAB_RESERVE}>
         {(scale) => (
           // 560-wide relative box = the deck; the SETTINGS tab pins to its

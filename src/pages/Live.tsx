@@ -8,13 +8,14 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
+import SettingsPanel, { DimPicker, MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useSpotify } from "../lib/useSpotify";
 import type { PlayContextOpts } from "../lib/useSpotify";
 import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
 import { loadSavedMetal, metalCssVars, saveMetal, MetalName } from "../lib/metals";
+import { dimCssVars, loadSavedDim, saveDim, DimLevel } from "../lib/dimmer";
 
 // Code-split the LIBRARY drawer (Item 8): it + its data hook (useSpotifyLibrary)
 // stay out of the initial bundle and only load on first open. Default export ->
@@ -48,6 +49,11 @@ export default function Live() {
   const handleMetalChange = (next: MetalName) => {
     setMetal(next);
     saveMetal(next);
+  };
+  const [dim, setDim] = useState<DimLevel>(() => loadSavedDim());
+  const handleDimChange = (next: DimLevel) => {
+    setDim(next);
+    saveDim(next);
   };
 
   // Browse is live-only: it needs a connected account.
@@ -117,12 +123,21 @@ export default function Live() {
       label: "Metal",
       content: <MetalPicker metal={metal} onMetalChange={handleMetalChange} />,
     },
+    {
+      id: "brightness",
+      label: "Brightness",
+      content: <DimPicker level={dim} onLevelChange={handleDimChange} />,
+    },
   ];
 
   return (
     // The stage carries the --m-* custom properties (metals.ts) that every
-    // metal-toned element below — deck chrome, tabs, drawers — resolves.
-    <div className="stage" style={metalCssVars(metal) as React.CSSProperties}>
+    // metal-toned element below — deck chrome, tabs, drawers — resolves,
+    // plus the --dim-* display level (dimmer.ts).
+    <div
+      className="stage"
+      style={{ ...metalCssVars(metal), ...dimCssVars(dim) } as React.CSSProperties}
+    >
       <DeckScaler extraWidth={TAB_RESERVE}>
         {(scale) => (
           // 560-wide relative box = the deck; the LIBRARY/SETTINGS tabs pin to
