@@ -52,6 +52,13 @@ export interface SpotifyState {
   deviceId: string | null;
   accessToken: string | null;
   error: string | null;
+  // Human-readable "why the deck isn't doing what you expect" line (session
+  // expired, playback left this device, no active device...). Informational,
+  // not an error: shown as a dismissible strip, auto-cleared when the
+  // condition resolves (login / reconnect). See the failure-state notes below.
+  notice: string | null;
+  dismissNotice: () => void;
+  dismissError: () => void;
   login: () => void;
   logout: () => void;
   togglePlay: () => Promise<void>;
@@ -273,6 +280,7 @@ export function useSpotify(): SpotifyState {
   const [isConnected, setIsConnected] = useState(false);
   const [track, setTrack] = useState<SpotifyTrack | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const playerRef = useRef<Spotify.Player | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -313,6 +321,9 @@ export function useSpotify(): SpotifyState {
   // token is still valid for a bit (proactive case) and the 401 backstop / next
   // poll will retry — so a blip never logs anyone out. Never loops.
   const performRefresh = useCallback(async (): Promise<string | null> => {
+    // Whether an actual session existed going in — distinguishes "your session
+    // expired" (worth telling the user) from "first visit, nothing to refresh".
+    const hadSession = !!getStoredRefreshToken();
     const outcome = await refreshAccessToken();
     if (outcome.status === "refreshed") {
       setToken(outcome.token); // → schedule effect re-arms the next refresh
@@ -321,6 +332,9 @@ export function useSpotify(): SpotifyState {
     if (outcome.status === "revoked") {
       clearRefreshTimer();
       setToken(null); // → CONNECT
+      // A real session just died (refresh token revoked/expired) — say so
+      // instead of silently resetting the deck to the CONNECT state.
+      if (hadSession) setNotice("Session expired — press CONNECT to sign back in.");
     }
     return null;
   }, [clearRefreshTimer]);
@@ -353,6 +367,7 @@ export function useSpotify(): SpotifyState {
 
   // ── Login: PKCE flow ──────────────────────────────────────────────────────
   const login = useCallback(async () => {
+    setNotice(null); // the user is acting on it — retire the prompt
     const verifier = generateRandomString(64);
     const challenge = await generateCodeChallenge(verifier);
     localStorage.setItem(VERIFIER_KEY, verifier);
@@ -380,6 +395,7 @@ export function useSpotify(): SpotifyState {
     setIsSDKReady(false);
     setIsConnected(false);
     setTrack(null);
+    setNotice(null); // deliberate logout needs no explanation strip
   }, [clearRefreshTimer]);
 
   // ── Handle OAuth callback ─────────────────────────────────────────────────
@@ -528,6 +544,48 @@ export function useSpotify(): SpotifyState {
     };
   }, [token, isConnected, apiFetch]);
 
+  // ── Failure-state notices (backlog item 4) ────────────────────────────────
+  // If this deck WAS the active device and stopped being it (playback moved to
+  // another device, or the SDK connection dropped), explain it — the deck
+  // otherwise just goes quiet, which reads as "stuck". Cleared automatically
+  // when the deck becomes the active device again.
+  const wasConnectedRef = useRef(false);
+  useEffect(() => {
+    if (isConnected) {
+      wasConnectedRef.current = true;
+      // The condition any device-related notice described has resolved.
+      setNotice((n) => (n && n.includes("THIS DEVICE") ? null : n));
+      return;
+    }
+    if (wasConnectedRef.current && token) {
+      wasConnectedRef.current = false;
+      setNotice("Playback left this deck — press ▶ THIS DEVICE to bring it back.");
+    }
+  }, [isConnected, token]);
+
+  // REST transport fallback with device recovery: Spotify answers 404 when no
+  // device is active. Instead of a dead button, hand playback to the turntable
+  // (silently, play:false — the retried command decides whether sound starts)
+  // and retry once; only if that still fails does the deck say so.
+  const restTransport = useCallback(
+    async (url: string, init: RequestInit): Promise<Response> => {
+      let res = await apiFetch(url, init);
+      if (res.status === 404 && deviceId) {
+        await apiFetch("https://api.spotify.com/v1/me/player", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_ids: [deviceId], play: false }),
+        });
+        res = await apiFetch(url, init);
+      }
+      if (res.status === 404) {
+        setNotice("No active Spotify device — press ▶ THIS DEVICE to play here.");
+      }
+      return res;
+    },
+    [apiFetch, deviceId]
+  );
+
   // ── Playback Controls ─────────────────────────────────────────────────────
   const togglePlay = useCallback(async () => {
     if (playerRef.current && isConnected) {
@@ -537,34 +595,43 @@ export function useSpotify(): SpotifyState {
       const endpoint = track?.isPlaying
         ? "https://api.spotify.com/v1/me/player/pause"
         : "https://api.spotify.com/v1/me/player/play";
-      await apiFetch(endpoint, { method: "PUT" });
+      await restTransport(endpoint, { method: "PUT" });
     }
-  }, [isConnected, token, track, apiFetch]);
+  }, [isConnected, token, track, restTransport]);
 
   const nextTrack = useCallback(async () => {
     if (playerRef.current && isConnected) {
       await playerRef.current.nextTrack();
     } else if (token) {
-      await apiFetch("https://api.spotify.com/v1/me/player/next", { method: "POST" });
+      await restTransport("https://api.spotify.com/v1/me/player/next", { method: "POST" });
     }
-  }, [isConnected, token, apiFetch]);
+  }, [isConnected, token, restTransport]);
 
   const prevTrack = useCallback(async () => {
     if (playerRef.current && isConnected) {
       await playerRef.current.previousTrack();
     } else if (token) {
-      await apiFetch("https://api.spotify.com/v1/me/player/previous", { method: "POST" });
+      await restTransport("https://api.spotify.com/v1/me/player/previous", { method: "POST" });
     }
-  }, [isConnected, token, apiFetch]);
+  }, [isConnected, token, restTransport]);
 
   // ── Transfer playback to this device ─────────────────────────────────────
   const transferPlayback = useCallback(async () => {
-    if (!token || !deviceId) return;
-    await apiFetch("https://api.spotify.com/v1/me/player", {
+    if (!token) return;
+    if (!deviceId) {
+      // SDK hasn't announced a device yet (still initialising, or it failed).
+      // Say so rather than being a button that does nothing.
+      setNotice("The turntable device isn't ready yet — give it a second and try again.");
+      return;
+    }
+    const res = await apiFetch("https://api.spotify.com/v1/me/player", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device_ids: [deviceId], play: true }),
     });
+    if (!res.ok && res.status !== 202 && res.status !== 204) {
+      setNotice(`Couldn't move playback here (${res.status}) — try again in a moment.`);
+    }
   }, [token, deviceId, apiFetch]);
 
   // ── Play a specific album / playlist / track set ──────────────────────────
@@ -623,6 +690,9 @@ export function useSpotify(): SpotifyState {
     [isConnected, token, apiFetch]
   );
 
+  const dismissNotice = useCallback(() => setNotice(null), []);
+  const dismissError = useCallback(() => setError(null), []);
+
   return {
     isAuthenticated: !!token,
     isSDKReady,
@@ -631,6 +701,9 @@ export function useSpotify(): SpotifyState {
     deviceId,
     accessToken: token,
     error,
+    notice,
+    dismissNotice,
+    dismissError,
     login,
     logout,
     togglePlay,

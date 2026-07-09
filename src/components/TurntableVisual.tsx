@@ -67,6 +67,12 @@ export interface TurntableVisualProps {
   isAuthenticated: boolean;
   isConnected: boolean;
   error?: string | null;
+  onDismissError?: () => void;
+  // Informational "why the deck isn't doing what you expect" line (session
+  // expired / playback moved elsewhere / no active device). Amber, dismissible
+  // — a state explanation, not a fault.
+  notice?: string | null;
+  onDismissNotice?: () => void;
   mode?: TurntableMode;
   // Selected deck wood finish (Settings tab, live-only). Falls back to the
   // catalog default so callers that don't customize it (e.g. Home's demo
@@ -635,6 +641,9 @@ export default function TurntableVisual({
   isAuthenticated,
   isConnected,
   error,
+  onDismissError,
+  notice,
+  onDismissNotice,
   mode = "live",
   deckWood = DEFAULT_WOOD,
   scale = 1,
@@ -1322,10 +1331,71 @@ export default function TurntableVisual({
         onLogout={onLogout}
       />
 
+      {/* Status strips (backlog item 4): amber notice = state explanation
+          (session expired, playback moved, no device); red = real error.
+          Both dismissible so a stale line can't sit there forever. */}
+      {notice && (
+        <StatusStrip tone="notice" onDismiss={onDismissNotice}>
+          {notice}
+        </StatusStrip>
+      )}
       {error && (
-        <div style={{ padding: "6px 20px", background: "#3a1008", borderTop: "1px solid #6a1808", fontSize: "0.5em", color: "#ff6040", fontFamily: "'Courier New', monospace", letterSpacing: "0.1em" }}>
+        <StatusStrip tone="error" onDismiss={onDismissError}>
           ⚠ {error}
-        </div>
+        </StatusStrip>
+      )}
+    </div>
+  );
+}
+
+// One-line status footer under the control strip. `notice` reads as a metal
+// info plate (amber on walnut), `error` keeps the old red fault strip look.
+function StatusStrip({
+  tone,
+  onDismiss,
+  children,
+}: {
+  tone: "notice" | "error";
+  onDismiss?: () => void;
+  children: React.ReactNode;
+}) {
+  const isError = tone === "error";
+  return (
+    <div
+      role={isError ? "alert" : "status"}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        padding: "6px 20px",
+        background: isError ? "#3a1008" : "#2a1c08",
+        borderTop: `1px solid ${isError ? "#6a1808" : "#3a2808"}`,
+        fontSize: "0.5em",
+        color: isError ? "#ff6040" : M.bright,
+        fontFamily: "'Courier New', monospace",
+        letterSpacing: "0.1em",
+      }}
+    >
+      <span>{children}</span>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          style={{
+            background: "none",
+            border: "none",
+            color: "inherit",
+            font: "inherit",
+            fontSize: "1.2em",
+            lineHeight: 1,
+            cursor: "pointer",
+            padding: "0 2px",
+            flex: "0 0 auto",
+          }}
+        >
+          ✕
+        </button>
       )}
     </div>
   );

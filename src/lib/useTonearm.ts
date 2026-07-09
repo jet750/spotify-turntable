@@ -473,6 +473,35 @@ export function useTonearm({
     if (isPlaying && state === "parked") setState("playing");
   }, [isPlaying, state]);
 
+  // ── External-state reconcile (backlog: failure states) ──────────────────────
+  // The player is the source of truth. If the audio has been paused for a
+  // sustained beat while the needle still rides the groove (paused from another
+  // device, or a play command that silently failed), lift the arm so the deck
+  // reads "paused" instead of miming playback. Symmetrically, if audio resumes
+  // while the arm is lifted (resumed remotely), drop it back on the groove.
+  // Debounced well past the REST poll cadence (3s) + fetch latency, so a local
+  // lift/drop whose pause/play echo arrives on the NEXT poll never gets fought,
+  // and SDK flickers around track changes never twitch the arm. It never calls
+  // ensurePlay/ensurePause — it FOLLOWS the player, it doesn't drive it.
+  const EXTERNAL_RECONCILE_MS = 5000;
+  useEffect(() => {
+    const mismatch =
+      (state === "playing" && !isPlaying) || (state === "lifted" && isPlaying);
+    if (!mismatch) return;
+    const id = setTimeout(() => {
+      setState((s) => {
+        if (s === "playing" && !isPlaying) return "lifted";
+        if (s === "lifted" && isPlaying) {
+          velRef.current += DROP_NUDGE_DEG_PER_S; // visible micro-settle
+          onNeedleDownRef.current?.();
+          return "playing";
+        }
+        return s;
+      });
+    }, EXTERNAL_RECONCILE_MS);
+    return () => clearTimeout(id);
+  }, [state, isPlaying]);
+
   // ── derived render values ───────────────────────────────────────────────────
   // The spring owns the angle; "lifted" now includes the cue swing, so the arm
   // rises for the whole approach and the translateY drop lands WITH the audio.

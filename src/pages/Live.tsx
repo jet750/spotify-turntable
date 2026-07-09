@@ -140,6 +140,9 @@ export default function Live() {
               isAuthenticated={spotify.isAuthenticated}
               isConnected={spotify.isConnected}
               error={spotify.error}
+              onDismissError={spotify.dismissError}
+              notice={spotify.notice}
+              onDismissNotice={spotify.dismissNotice}
               onTogglePlay={spotify.togglePlay}
               onSeek={spotify.seek}
               onPrev={spotify.prevTrack}
