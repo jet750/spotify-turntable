@@ -47,3 +47,25 @@ body {
    removed. The passphrase prompt (live page) was removed along with
    VITE_STUDIO_PASS — access to /live is enforced solely by Spotify's
    allowlist — so its .gate-* styles were removed too. */
+
+/* First-run invitation (backlog item 6): a slow breathing glow on the CONNECT
+   button while the deck is unauthenticated — the one thing the empty deck
+   wants you to press. Rides the metal finish via --m-glow-rgb and disappears
+   for reduced-motion users. */
+@keyframes connect-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--m-glow-rgb, 232, 200, 112), 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 3px rgba(var(--m-glow-rgb, 232, 200, 112), 0.45);
+  }
+}
+.connect-invite {
+  animation: connect-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .connect-invite {
+    animation: none;
+  }
+}

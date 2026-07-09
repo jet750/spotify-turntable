@@ -408,6 +408,8 @@ function ControlStrip(p: ControlsProps) {
           <button
             onClick={authHandler}
             aria-label={p.isAuthenticated ? "Log out of Spotify" : "Connect Spotify"}
+            // First-run invitation (Item 6): breathe until connected.
+            className={p.isAuthenticated ? undefined : "connect-invite"}
             style={{
               // Darkened from the old #8a6828 top so the #f0d080 label clears WCAG AA
               // 4.5:1 across the whole button (Item 10).
@@ -538,6 +540,7 @@ function TrackInfo({
   progressMs,
   onSeek,
   enabled,
+  emptyText = "NO TRACK LOADED",
 }: {
   track: SpotifyTrack | null;
   // Smoothed, locally-extrapolated position (Item 2) — drives the bar + timecode
@@ -545,6 +548,9 @@ function TrackInfo({
   progressMs: number;
   onSeek?: (ms: number) => void;
   enabled?: boolean;
+  // What the empty bar says (Item 6): the caller knows WHY there's no track
+  // (not connected vs. nothing playing) and words the invitation accordingly.
+  emptyText?: string;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingBar = useRef(false);
@@ -579,7 +585,7 @@ function TrackInfo({
     return (
       <div style={{ padding: "8px 20px", background: "#2a1c08", borderTop: "1px solid #3a2808", textAlign: "center" }}>
         <span style={{ fontSize: "0.6em", color: "#b89a5e", fontFamily: "'Courier New', monospace", letterSpacing: "0.2em" }}>
-          NO TRACK LOADED
+          {emptyText}
         </span>
       </div>
     );
@@ -1328,7 +1334,21 @@ export default function TurntableVisual({
         />
       </div>
 
-      <TrackInfo track={track} progressMs={liveProgressMs} onSeek={seekTo} enabled={mode === "demo" || isAuthenticated} />
+      <TrackInfo
+        track={track}
+        progressMs={liveProgressMs}
+        onSeek={seekTo}
+        enabled={mode === "demo" || isAuthenticated}
+        // Item 6: the empty bar explains the next step instead of a bare
+        // "NO TRACK LOADED" — connect first, then put a record on.
+        emptyText={
+          mode === "live" && !isAuthenticated
+            ? "CONNECT YOUR SPOTIFY TO PUT A RECORD ON"
+            : mode === "live"
+            ? "NO TRACK LOADED — PICK ONE FROM LIBRARY"
+            : "NO TRACK LOADED"
+        }
+      />
 
       <ControlStrip
         armState={arm.state}
