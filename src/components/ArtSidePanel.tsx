@@ -119,6 +119,8 @@ export default function ArtSidePanel({
             letterSpacing: "0.2em",
             color: BRASS_DIM,
             textTransform: "uppercase",
+            // Dim brass on the light wood finishes needs the shadow to read.
+            textShadow: "0 1px 3px rgba(0,0,0,0.85)",
           }}
         >
           Now spinning

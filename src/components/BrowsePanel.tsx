@@ -42,6 +42,9 @@ const MONO = "'Courier New', monospace";
 // Dark backing that keeps text/cards legible on top of the wood tile — the
 // cabinet equivalent of the deck's control plates.
 const SHELF_BACKING = "rgba(24, 15, 5, 0.55)";
+// Small dim-brass labels sit directly on the wood tile; on the light finishes
+// (oak/pine) they need this shadow to stay readable.
+const WOOD_TEXT_SHADOW = "0 1px 3px rgba(0,0,0,0.85)";
 
 type TabKey = "now" | "search" | "playlists" | "collection" | "recent";
 
@@ -403,6 +406,7 @@ function NowPlayingView({
           letterSpacing: "0.2em",
           color: BRASS_DIM,
           textTransform: "uppercase",
+          textShadow: WOOD_TEXT_SHADOW,
         }}
       >
         On the platter
@@ -514,6 +518,7 @@ function TabBody({
           color: BRASS_DIM,
           textTransform: "uppercase",
           marginBottom: 10,
+          textShadow: WOOD_TEXT_SHADOW,
         }}
       >
         {heading}
@@ -535,7 +540,7 @@ function TabBody({
       {tab.loading && <SkeletonGrid />}
 
       {!tab.loading && !tab.error && tab.cards.length === 0 && (
-        <div style={{ fontSize: 12, color: BRASS_DIM, padding: "8px 0" }}>
+        <div style={{ fontSize: 12, color: BRASS_DIM, padding: "8px 0", textShadow: WOOD_TEXT_SHADOW }}>
           {activeTab === "search"
             ? query.trim()
               ? "No albums found."
