@@ -1,33 +1,33 @@
 // DeckScaler.tsx
 // Responsive wrapper for the fixed ~560px turntable block. It measures the
 // width actually available (ResizeObserver + window resize) and CSS-scales the
-// deck down to fit — so the unit fills most of any viewport, down to ~380px
-// phones, without horizontal overflow.
+// deck BOTH ways — down to fit ~380px phones, and up until it fills the
+// viewport on large monitors:
 //
-//   s = clamp(MIN_SCALE, min(availWidth / footprint, heightBudget / naturalH), MAX_SCALE)
-//                                                          (transform-origin: top center)
+//   s = max(MIN_SCALE, min(availWidth / footprint, heightBudget / naturalH))
+//                                                  (transform-origin: top center)
+//
+// There is deliberately NO arbitrary upper cap: the deck grows until it runs
+// out of viewport width or height, whichever binds first, so a big monitor
+// gets a genuinely big deck. Uniform scalar => aspect ratio preserved.
 //
 // "footprint" is the deck's natural width (560) plus any `extraWidth` the caller
 // reserves for chrome that hangs off the edge — e.g. Live's LIBRARY side tab —
 // so that tab never pushes the page into a horizontal scroll.
 //
-// The deck now GROWS past 1.0 on roomy screens (MAX_SCALE) to fill more of the
-// viewport, but is bounded by BOTH the available width AND a viewport-height budget
-// so it never spills off-screen or forces a scrollbar. Uniform scalar => aspect
-// ratio preserved; the placeholder reserves the scaled footprint so layout doesn't
-// jump; the scale is handed to children so drag-to-seek still converts pointer px.
-//
-// NOTE: MAX_SCALE / VERTICAL_MARGIN are neutral defaults — tune the exact "fill"
-// feel in-browser later. They only change how big the deck is allowed to get.
+// The placeholder div reserves the SCALED footprint in normal flow, so layout
+// never jumps and the deck itself never spawns scrollbars. The scale is handed
+// to children so drag interactions (tonearm) convert pointer px back into
+// unscaled deck coordinates — the same compensation covers shrink and growth.
 
 import { useEffect, useRef, useState } from "react";
 
 const NATURAL_WIDTH = 560; // matches TurntableVisual's minWidth
 const MIN_SCALE = 0.5; // floor so the deck stays legible on ~380px phones
-const MAX_SCALE = 2; // ceiling so it can grow on large screens (neutral; tunable)
-// Viewport height reserved for stage padding + the info-button row + breathing
-// room, subtracted before computing the height-limited scale (neutral; tunable).
-const VERTICAL_MARGIN = 180;
+// Viewport height reserved before computing the height-limited scale: the
+// .stage's 32px top + bottom padding plus a sliver of breathing room, so the
+// grown deck fills the screen without ever forcing a vertical scrollbar.
+const VERTICAL_MARGIN = 72;
 
 export default function DeckScaler({
   extraWidth = 0,
@@ -57,9 +57,10 @@ export default function DeckScaler({
       const widthScale = avail / footprint;
       const heightScale =
         naturalH > 0 ? Math.max(0, window.innerHeight - VERTICAL_MARGIN) / naturalH : Infinity;
-      // Bounded by BOTH dimensions: never wider than the column, never taller than
-      // the viewport budget; then clamped to the allowed scale range.
-      const s = Math.max(MIN_SCALE, Math.min(widthScale, heightScale, MAX_SCALE));
+      // Bounded by BOTH dimensions — never wider than the column, never taller
+      // than the viewport budget — and by nothing else: the viewport itself is
+      // the ceiling. Only the legibility floor clamps from below.
+      const s = Math.max(MIN_SCALE, Math.min(widthScale, heightScale));
       setScale(s);
       setInnerH(naturalH);
     };
