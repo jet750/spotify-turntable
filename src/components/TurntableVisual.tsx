@@ -331,11 +331,35 @@ function ctrlBtn(extra: React.CSSProperties = {}): React.CSSProperties {
   };
 }
 
+// Round brass transport button (START / STOP pair, Item 5). The disabled face
+// matches the dimmed look the old single toggle used when seek was disabled.
+function transportBtn(enabled: boolean): React.CSSProperties {
+  return {
+    width: 40,
+    height: 40,
+    borderRadius: "50%",
+    background: enabled
+      ? `radial-gradient(circle at 35% 35%, ${M.bright}, ${M.base}, ${M.deep})`
+      : "radial-gradient(circle at 35% 35%, #6a5818, #4a3810, #2a1800)",
+    border: `2px solid ${enabled ? M.brightest : "#4a3800"}`,
+    boxShadow: enabled ? `0 3px 10px rgba(0,0,0,0.5), inset 0 1px 0 ${M.glow(0.3)}` : "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: enabled ? "pointer" : "default",
+    transition: "all 0.2s",
+  };
+}
+
 function ControlStrip(p: ControlsProps) {
   const isDemo = p.mode === "demo";
   const running = p.armState !== "parked" && p.armState !== "returning";
   const seekEnabled = isDemo || p.isAuthenticated;
   const canCue = p.armState === "playing" || p.armState === "lifted";
+  // START only applies from rest, STOP only while running (Item 5) — the same
+  // enabled/dimmed pattern the rest of the strip uses.
+  const canStart = seekEnabled && !running;
+  const canStop = seekEnabled && running;
 
   // Press-and-hold ⏭ to scrub forward; a quick tap skips to the next track.
   // `active` tracks an in-progress press: ffUp/ffCancel are no-ops without it,
@@ -496,30 +520,28 @@ function ControlStrip(p: ControlsProps) {
           ⏮
         </button>
 
+        {/* START / STOP: two separate buttons like a real deck (Item 5). Both
+            are always visible; each dims when its action doesn't apply. Wired
+            to the same arm.start()/arm.stop() flows the old single toggle used
+            — a control-surface change only. */}
         <button
-          onClick={running ? p.onStop : p.onStart}
-          disabled={!seekEnabled}
-          aria-label={running ? "Stop" : "Start"}
-          title={running ? "Stop" : "Start"}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            background: seekEnabled
-              ? `radial-gradient(circle at 35% 35%, ${M.bright}, ${M.base}, ${M.deep})`
-              : "radial-gradient(circle at 35% 35%, #6a5818, #4a3810, #2a1800)",
-            border: `2px solid ${seekEnabled ? M.brightest : "#4a3800"}`,
-            boxShadow: seekEnabled ? `0 3px 10px rgba(0,0,0,0.5), inset 0 1px 0 ${M.glow(0.3)}` : "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: seekEnabled ? "pointer" : "default",
-            transition: "all 0.2s",
-          }}
+          onClick={p.onStart}
+          disabled={!canStart}
+          aria-label="Start"
+          title="Start (cue the arm and play)"
+          style={transportBtn(canStart)}
         >
-          <span style={{ fontSize: "0.95em", color: seekEnabled ? M.textOn : "#2a1800" }}>
-            {running ? "■" : "▶"}
-          </span>
+          <span style={{ fontSize: "0.9em", color: canStart ? M.textOn : "#2a1800" }}>▶</span>
+        </button>
+
+        <button
+          onClick={p.onStop}
+          disabled={!canStop}
+          aria-label="Stop"
+          title="Stop (return the arm to rest)"
+          style={transportBtn(canStop)}
+        >
+          <span style={{ fontSize: "0.9em", color: canStop ? M.textOn : "#2a1800" }}>■</span>
         </button>
 
         <button
