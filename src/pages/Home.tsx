@@ -9,10 +9,11 @@
 import { useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { DimPicker, SettingsSection } from "../components/SettingsPanel";
+import SettingsPanel, { CracklePicker, DimPicker, SettingsSection } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
+import { loadSavedCrackle, saveCrackle } from "../lib/useVinylNoise";
 import { DEMO_TRACKS } from "../lib/demoMeta";
 import { loadSavedMetal, metalCssVars } from "../lib/metals";
 import { dimCssVars, loadSavedDim, saveDim, DimLevel } from "../lib/dimmer";
@@ -30,6 +31,11 @@ export default function Home() {
   const handleDimChange = (next: DimLevel) => {
     setDim(next);
     saveDim(next);
+  };
+  const [crackle, setCrackle] = useState<boolean>(() => loadSavedCrackle());
+  const handleCrackleChange = (next: boolean) => {
+    setCrackle(next);
+    saveCrackle(next);
   };
 
   // De-duplicated attribution lines (CC licenses require visible credit).
@@ -54,6 +60,11 @@ export default function Home() {
       id: "howto",
       label: "How-To",
       content: <HowToPager />,
+    },
+    {
+      id: "crackle",
+      label: "Crackle",
+      content: <CracklePicker on={crackle} onChange={handleCrackleChange} />,
     },
     {
       id: "brightness",
@@ -92,6 +103,7 @@ export default function Home() {
             <TurntableVisual
               mode="demo"
               scale={scale}
+              crackleOn={crackle}
               track={demo.track}
               isAuthenticated={true}
               isConnected={false}

@@ -205,6 +205,48 @@ export function DimPicker({
   );
 }
 
+// Surface-crackle toggle — content of the "Crackle" section (both pages;
+// relocated from the deck surface). ON/OFF chips matching DimPicker so the
+// drawer reads as one control panel.
+export function CracklePicker({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {([true, false] as const).map((value) => {
+        const active = on === value;
+        return (
+          <button
+            key={String(value)}
+            onClick={() => onChange(value)}
+            aria-pressed={active}
+            aria-label={value ? "Turn on surface crackle" : "Turn off surface crackle"}
+            title="Ambient vinyl surface noise under the music"
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: active ? "#2a1c08" : BRASS_DIM,
+              background: active ? BRASS : "transparent",
+              border: `1px solid ${active ? BRASS_LIGHT : BORDER_DARK}`,
+              borderRadius: 3,
+              padding: "5px 12px",
+              cursor: "pointer",
+            }}
+          >
+            {value ? "On" : "Off"}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // Metal-finish swatch picker — content of Live's "Metal" section. Each disc
 // previews its own palette (radial highlight → base → deep, like the deck's
 // metal buttons), so the row reads as three little machined knobs.

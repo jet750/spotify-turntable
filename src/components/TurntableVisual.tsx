@@ -88,6 +88,9 @@ export interface TurntableVisualProps {
   // onCueLand exactly as the stylus touches — the caller starts playback there.
   cueRequestId?: number;
   onCueLand?: () => void;
+  // Ambient surface-crackle bed on/off (Settings → Crackle). The one-shot
+  // needle-drop crackle always plays; only the looping bed follows this.
+  crackleOn?: boolean;
   // 45 RPM Easter egg (Item 6): optional hook to genuinely change the AUDIO
   // rate when the platter speed changes. Demo mode passes a real setter (the
   // <audio> element supports playbackRate). LIVE MODE LIMITATION: the Spotify
@@ -681,6 +684,7 @@ export default function TurntableVisual({
   scale = 1,
   cueRequestId,
   onCueLand,
+  crackleOn = false,
   onSetPlaybackRate,
   onTogglePlay,
   onSeek,
@@ -774,8 +778,9 @@ export default function TurntableVisual({
 
   // ── Vinyl crackle overlay (Item 4) ─────────────────────────────────────────
   // One-shot drop crackle fires from the arm's needle-down moments; the ambient
-  // bed runs only while the needle is riding a spinning record ("playing").
-  const noise = useVinylNoise();
+  // bed runs only while crackleOn (Settings → Crackle) AND the needle is riding
+  // a spinning record ("playing").
+  const noise = useVinylNoise(crackleOn);
 
   const arm = useTonearm({
     progress01,
@@ -1275,45 +1280,9 @@ export default function TurntableVisual({
           </div>
         </div>
 
-        {/* Right: crackle + speed plates */}
+        {/* Right: speed plate. (The CRACKLE toggle moved to Settings → Crackle;
+            only physical-feeling controls stay on the deck surface.) */}
         <div style={{ position: "relative", width: 160, alignSelf: "stretch", flexShrink: 0 }}>
-          {/* Surface-noise bed toggle (Item 4) */}
-          <button
-            onClick={noise.toggleBed}
-            aria-pressed={noise.bedEnabled}
-            aria-label={noise.bedEnabled ? "Turn off surface crackle" : "Turn on surface crackle"}
-            title="Ambient vinyl surface noise under the music"
-            style={{
-              position: "absolute",
-              bottom: 108,
-              right: 10,
-              background: `linear-gradient(180deg, ${M.plateTop} 0%, ${M.plateBottom} 100%)`,
-              border: `1px solid ${noise.bedEnabled ? M.bright : M.deep}`,
-              borderRadius: 4,
-              padding: "5px 10px",
-              textAlign: "center",
-              cursor: "pointer",
-              fontFamily: "'Courier New', monospace",
-            }}
-          >
-            <div style={{ fontSize: "0.42em", color: M.brightest, letterSpacing: "0.18em", marginBottom: 3 }}>
-              CRACKLE
-            </div>
-            <div
-              style={{
-                fontSize: "0.42em",
-                color: noise.bedEnabled ? M.textOn : M.brightest,
-                background: noise.bedEnabled ? M.base : "transparent",
-                border: noise.bedEnabled ? "none" : `1px solid ${M.shade}`,
-                borderRadius: 2,
-                padding: "2px 6px",
-                letterSpacing: "0.12em",
-              }}
-            >
-              {noise.bedEnabled ? "ON" : "OFF"}
-            </div>
-          </button>
-
           {/* Speed switch (Item 6): 33⅓ / 45. Visual spin always follows; the
               audio only follows in demo mode (see onSetPlaybackRate). */}
           <div

@@ -8,11 +8,12 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { DimPicker, MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
+import SettingsPanel, { CracklePicker, DimPicker, MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useSpotify } from "../lib/useSpotify";
 import type { PlayContextOpts } from "../lib/useSpotify";
+import { loadSavedCrackle, saveCrackle } from "../lib/useVinylNoise";
 import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
 import { loadSavedMetal, metalCssVars, saveMetal, MetalName } from "../lib/metals";
 import { dimCssVars, loadSavedDim, saveDim, DimLevel } from "../lib/dimmer";
@@ -54,6 +55,11 @@ export default function Live() {
   const handleDimChange = (next: DimLevel) => {
     setDim(next);
     saveDim(next);
+  };
+  const [crackle, setCrackle] = useState<boolean>(() => loadSavedCrackle());
+  const handleCrackleChange = (next: boolean) => {
+    setCrackle(next);
+    saveCrackle(next);
   };
 
   // Browse is live-only: it needs a connected account.
@@ -124,6 +130,11 @@ export default function Live() {
       content: <MetalPicker metal={metal} onMetalChange={handleMetalChange} />,
     },
     {
+      id: "crackle",
+      label: "Crackle",
+      content: <CracklePicker on={crackle} onChange={handleCrackleChange} />,
+    },
+    {
       id: "brightness",
       label: "Brightness",
       content: <DimPicker level={dim} onLevelChange={handleDimChange} />,
@@ -151,6 +162,7 @@ export default function Live() {
               deckWood={wood}
               cueRequestId={cueRequestId}
               onCueLand={handleCueLand}
+              crackleOn={crackle}
               track={spotify.track}
               isAuthenticated={spotify.isAuthenticated}
               isConnected={spotify.isConnected}

@@ -3,7 +3,10 @@
 //   (a) a ONE-SHOT needle-drop crackle that swells out of silence exactly as
 //       the stylus lands (Item 3's landing moment), then fades under the music;
 //   (b) a TOGGLEABLE ambient surface-noise bed that loops, very low, while the
-//       needle is on a spinning record. Toggle persists in localStorage.
+//       needle is on a spinning record. The toggle lives in the Settings
+//       drawer (Item 4 relocation): the page owns the on/off state via
+//       loadSavedCrackle/saveCrackle and passes it down; this hook just
+//       follows the value it's given.
 //
 // NOTE: the Spotify stream itself CANNOT be processed — the Web Playback SDK
 // plays through its own media element (DRM'd, not routable into an
@@ -32,6 +35,24 @@ const DROP_THUMP_GAIN = 0.5;   // thump level inside the drop buffer
 const HISS_WARMTH = 0.18;      // one-pole lowpass coefficient: lower = darker hiss
 
 const BED_KEY = "vinyl_crackle_bed"; // localStorage: "1" = bed enabled
+
+// Persisted crackle preference (Settings → Crackle). Same load/save shape as
+// woods/metals/dimmer so the pages wire it up identically.
+export function loadSavedCrackle(): boolean {
+  try {
+    return localStorage.getItem(BED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveCrackle(on: boolean): void {
+  try {
+    localStorage.setItem(BED_KEY, on ? "1" : "0");
+  } catch {
+    /* storage unavailable — session-only preference */
+  }
+}
 
 // ─── Procedural buffers ──────────────────────────────────────────────────────
 
@@ -105,16 +126,13 @@ function makeDropBuffer(ctx: AudioContext): AudioBuffer {
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export interface VinylNoise {
-  bedEnabled: boolean;          // user toggle (persisted)
-  toggleBed: () => void;
   setBedActive: (on: boolean) => void; // "needle is riding a spinning record"
   playNeedleDrop: () => void;   // fire exactly at stylus touchdown
 }
 
-export function useVinylNoise(): VinylNoise {
-  const [bedEnabled, setBedEnabled] = useState<boolean>(
-    () => typeof localStorage !== "undefined" && localStorage.getItem(BED_KEY) === "1"
-  );
+// `bedEnabled` is the user's Settings toggle, owned by the page (see
+// loadSavedCrackle/saveCrackle above).
+export function useVinylNoise(bedEnabled: boolean): VinylNoise {
   const [bedActive, setBedActiveState] = useState(false);
 
   const ctxRef = useRef<AudioContext | null>(null);
@@ -136,18 +154,6 @@ export function useVinylNoise(): VinylNoise {
     }
     if (ctxRef.current.state === "suspended") void ctxRef.current.resume();
     return ctxRef.current;
-  }, []);
-
-  const toggleBed = useCallback(() => {
-    setBedEnabled((v) => {
-      const next = !v;
-      try {
-        localStorage.setItem(BED_KEY, next ? "1" : "0");
-      } catch {
-        /* storage unavailable — session-only toggle */
-      }
-      return next;
-    });
   }, []);
 
   const setBedActive = useCallback((on: boolean) => setBedActiveState(on), []);
@@ -232,5 +238,5 @@ export function useVinylNoise(): VinylNoise {
     []
   );
 
-  return { bedEnabled, toggleBed, setBedActive, playNeedleDrop };
+  return { setBedActive, playNeedleDrop };
 }
