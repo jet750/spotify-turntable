@@ -18,7 +18,7 @@ import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
 import { loadSavedMetal, metalCssVars, saveMetal, MetalName } from "../lib/metals";
 import { dimCssVars, loadSavedDim, saveDim, DimLevel } from "../lib/dimmer";
 
-// Code-split the LIBRARY drawer (Item 8): it + its data hook (useSpotifyLibrary)
+// Code-split the LIBRARY cabinet (Item 8): it + its data hook (useSpotifyLibrary)
 // stay out of the initial bundle and only load on first open. Default export ->
 // React.lazy-compatible.
 const BrowsePanel = lazy(() => import("../components/BrowsePanel"));
@@ -221,6 +221,7 @@ export default function Live() {
         <Suspense fallback={<BrowseFallback />}>
           <BrowsePanel
             spotify={spotifyForBrowse}
+            wood={wood}
             open={browseOpen}
             onClose={() => setBrowseOpen(false)}
           />
@@ -236,23 +237,23 @@ export default function Live() {
   );
 }
 
-// Lightweight fallback shown for the brief moment the lazy LIBRARY chunk loads on
-// first open. A thin walnut/brass rail on the right edge, matching the drawer's
-// resting position so the real panel slides in over it without a visual jump.
+// Lightweight fallback shown for the brief moment the lazy LIBRARY chunk loads
+// on first open. A centered walnut cabinet shell with the same footprint and
+// chrome as the real panel, so it fades in over the placeholder without a jump.
 function BrowseFallback() {
   return (
     <div
       aria-hidden
       style={{
         position: "fixed",
-        top: 0,
-        right: 0,
-        height: "100vh",
-        width: 360,
-        maxWidth: "100vw",
-        background: "linear-gradient(160deg, #3e2808 0%, #2a1c08 100%)",
-        borderLeft: "2px solid var(--m-base, #c49a3c)",
-        boxShadow: "-12px 0 48px rgba(0,0,0,0.6)",
+        inset: 0,
+        margin: "auto",
+        width: "min(1080px, 100vw - 32px)",
+        height: "min(88vh, 940px)",
+        background: "linear-gradient(160deg, #7a5228 0%, #5a3c18 40%, #3e2808 100%)",
+        border: "2px solid #3a2808",
+        borderRadius: 14,
+        boxShadow: "0 24px 80px rgba(0,0,0,0.8), inset 0 1px 0 rgba(232,200,112,0.12)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
