@@ -22,37 +22,41 @@ export interface DemoTrackMeta {
   attribution: string;
 }
 
+// All four tracks are Scott Buckley (scottbuckley.com.au), released CC BY 4.0.
+// The titles/artist match the files' ID3 tags \u2014 keep them in sync if swapped.
+const SB_ATTRIBUTION = "Music by Scott Buckley \u2014 scottbuckley.com.au \u2014 CC BY 4.0";
+
 export const DEMO_TRACKS: DemoTrackMeta[] = [
   {
     src: "/demo/track1.mp3",
-    cover: "/demo/cover1.jpg",
-    name: "Track One",
-    artist: "Artist",
-    album: "Source",
-    attribution: "\u201cTrack One\u201d by Artist \u2014 CC BY 4.0 \u00b7 source.example",
+    cover: "/demo/cover1.png",
+    name: "Sunday Smooth",
+    artist: "Scott Buckley",
+    album: "scottbuckley.com.au",
+    attribution: SB_ATTRIBUTION,
   },
   {
     src: "/demo/track2.mp3",
-    cover: "/demo/cover2.jpg",
-    name: "Track Two",
-    artist: "Artist",
-    album: "Source",
-    attribution: "\u201cTrack Two\u201d by Artist \u2014 CC BY 4.0 \u00b7 source.example",
+    cover: "/demo/cover2.png",
+    name: "Solecism",
+    artist: "Scott Buckley",
+    album: "scottbuckley.com.au",
+    attribution: SB_ATTRIBUTION,
   },
   {
     src: "/demo/track3.mp3",
-    cover: "/demo/cover3.jpg",
-    name: "Track Three",
-    artist: "Artist",
-    album: "Source",
-    attribution: "\u201cTrack Three\u201d by Artist \u2014 CC BY 4.0 \u00b7 source.example",
+    cover: "/demo/cover3.png",
+    name: "Ice Cream",
+    artist: "Scott Buckley",
+    album: "scottbuckley.com.au",
+    attribution: SB_ATTRIBUTION,
   },
   {
     src: "/demo/track4.mp3",
-    cover: "/demo/cover4.jpg",
-    name: "Track Four",
-    artist: "Artist",
-    album: "Source",
-    attribution: "\u201cTrack Four\u201d by Artist \u2014 CC BY 4.0 \u00b7 source.example",
+    cover: "/demo/cover4.png",
+    name: "Origami",
+    artist: "Scott Buckley",
+    album: "scottbuckley.com.au",
+    attribution: SB_ATTRIBUTION,
   },
 ];
