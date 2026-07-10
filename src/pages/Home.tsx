@@ -9,10 +9,12 @@
 import { useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { CracklePicker, DimPicker, SettingsSection } from "../components/SettingsPanel";
+import ArtSidePanel from "../components/ArtSidePanel";
+import SettingsPanel, { ArtPanelPicker, CracklePicker, DimPicker, SettingsSection } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useDemoPlayer } from "../lib/useDemoPlayer";
+import { loadSavedArtPanel, saveArtPanel } from "../lib/artPanel";
 import { loadSavedCrackle, saveCrackle } from "../lib/useVinylNoise";
 import { DEMO_TRACKS } from "../lib/demoMeta";
 import { loadSavedMetal, metalCssVars } from "../lib/metals";
@@ -36,6 +38,11 @@ export default function Home() {
   const handleCrackleChange = (next: boolean) => {
     setCrackle(next);
     saveCrackle(next);
+  };
+  const [artPanel, setArtPanel] = useState<boolean>(() => loadSavedArtPanel());
+  const handleArtPanelChange = (next: boolean) => {
+    setArtPanel(next);
+    saveArtPanel(next);
   };
 
   // De-duplicated attribution lines (CC licenses require visible credit).
@@ -67,6 +74,11 @@ export default function Home() {
       content: <CracklePicker on={crackle} onChange={handleCrackleChange} />,
     },
     {
+      id: "artpanel",
+      label: "Art Panel",
+      content: <ArtPanelPicker on={artPanel} onChange={handleArtPanelChange} />,
+    },
+    {
       id: "brightness",
       label: "Brightness",
       content: <DimPicker level={dim} onLevelChange={handleDimChange} />,
@@ -94,52 +106,71 @@ export default function Home() {
       className="stage"
       style={{ ...metalCssVars(metal), ...dimCssVars(dim) } as React.CSSProperties}
     >
-      <DeckScaler extraWidth={TAB_RESERVE}>
-        {(scale) => (
-          // 560-wide relative box = the deck; the SETTINGS tab pins to its
-          // right edge and lives INSIDE the scaled layer so it stays attached
-          // as the deck shrinks. (The drawer itself renders outside — fixed.)
-          <div style={{ position: "relative", display: "flex", width: 560 }}>
-            <TurntableVisual
-              mode="demo"
-              scale={scale}
-              crackleOn={crackle}
-              track={demo.track}
-              isAuthenticated={true}
-              isConnected={false}
-              onTogglePlay={demo.toggle}
-              onSeek={demo.seek}
-              onSetPlaybackRate={demo.setRate}
-              onPrev={demo.prev}
-              onNext={demo.next}
-              onTransfer={noop}
-              onLogin={noop}
-              onLogout={noop}
-            />
+      {/* Deck row: optional art side panel LEFT of the deck (mirrors Live —
+          the right edge belongs to the tab column). Fixed 300px panel; the
+          flex cell around DeckScaler absorbs the rest so the deck rescales
+          automatically. The panel hides itself below 1100px viewports. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 28,
+          width: "100%",
+        }}
+      >
+        {artPanel && <ArtSidePanel track={demo.track} />}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <DeckScaler extraWidth={TAB_RESERVE}>
+            {(scale) => (
+              // 560-wide relative box = the deck; the SETTINGS tab pins to its
+              // right edge and lives INSIDE the scaled layer so it stays
+              // attached as the deck rescales. (The drawer itself renders
+              // outside — fixed.)
+              <div style={{ position: "relative", display: "flex", width: 560 }}>
+                <TurntableVisual
+                  mode="demo"
+                  scale={scale}
+                  crackleOn={crackle}
+                  track={demo.track}
+                  isAuthenticated={true}
+                  isConnected={false}
+                  onTogglePlay={demo.toggle}
+                  onSeek={demo.seek}
+                  onSetPlaybackRate={demo.setRate}
+                  onPrev={demo.prev}
+                  onNext={demo.next}
+                  onTransfer={noop}
+                  onLogin={noop}
+                  onLogout={noop}
+                />
 
-            {/* SETTINGS: single vertical brass tab on the deck's right edge —
-                mirrors Live's tab column, minus LIBRARY (no account here). */}
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "100%",
-                transform: "translateY(-50%)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              <DeckTab
-                label="⚙ Settings"
-                ariaLabel="Open settings"
-                expanded={settingsOpen}
-                onClick={() => setSettingsOpen((o) => !o)}
-              />
-            </div>
-          </div>
-        )}
-      </DeckScaler>
+                {/* SETTINGS: single vertical brass tab on the deck's right
+                    edge — mirrors Live's tab column, minus LIBRARY (no
+                    account here). */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "100%",
+                    transform: "translateY(-50%)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  <DeckTab
+                    label="⚙ Settings"
+                    ariaLabel="Open settings"
+                    expanded={settingsOpen}
+                    onClick={() => setSettingsOpen((o) => !o)}
+                  />
+                </div>
+              </div>
+            )}
+          </DeckScaler>
+        </div>
+      </div>
 
       <SettingsPanel
         open={settingsOpen}

@@ -247,6 +247,53 @@ export function CracklePicker({
   );
 }
 
+// Album-art side panel toggle — content of the "Art Panel" section (both
+// pages). ON/OFF chips matching CracklePicker/DimPicker; the hint line notes
+// the wide-viewport gate so an OFF-looking toggle on a laptop isn't a mystery.
+export function ArtPanelPicker({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {([true, false] as const).map((value) => {
+          const active = on === value;
+          return (
+            <button
+              key={String(value)}
+              onClick={() => onChange(value)}
+              aria-pressed={active}
+              aria-label={value ? "Show the album art side panel" : "Hide the album art side panel"}
+              title="Full-size cover art beside the deck"
+              style={{
+                fontFamily: MONO,
+                fontSize: 11,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: active ? "#2a1c08" : BRASS_DIM,
+                background: active ? BRASS : "transparent",
+                border: `1px solid ${active ? BRASS_LIGHT : BORDER_DARK}`,
+                borderRadius: 3,
+                padding: "5px 12px",
+                cursor: "pointer",
+              }}
+            >
+              {value ? "On" : "Off"}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: BRASS_DIM, lineHeight: 1.5 }}>
+        Full-size cover art beside the deck. Wide screens only.
+      </div>
+    </div>
+  );
+}
+
 // Metal-finish swatch picker — content of Live's "Metal" section. Each disc
 // previews its own palette (radial highlight → base → deep, like the deck's
 // metal buttons), so the row reads as three little machined knobs.

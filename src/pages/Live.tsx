@@ -8,11 +8,13 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import TurntableVisual from "../components/TurntableVisual";
 import DeckScaler from "../components/DeckScaler";
-import SettingsPanel, { CracklePicker, DimPicker, MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
+import ArtSidePanel from "../components/ArtSidePanel";
+import SettingsPanel, { ArtPanelPicker, CracklePicker, DimPicker, MetalPicker, SettingsSection, WoodPicker } from "../components/SettingsPanel";
 import DeckTab, { TAB_RESERVE } from "../components/DeckTab";
 import HowToPager from "../components/HowTo";
 import { useSpotify } from "../lib/useSpotify";
 import type { PlayContextOpts } from "../lib/useSpotify";
+import { loadSavedArtPanel, saveArtPanel } from "../lib/artPanel";
 import { loadSavedCrackle, saveCrackle } from "../lib/useVinylNoise";
 import { loadSavedWood, saveWood, WoodName } from "../lib/woods";
 import { loadSavedMetal, metalCssVars, saveMetal, MetalName } from "../lib/metals";
@@ -60,6 +62,11 @@ export default function Live() {
   const handleCrackleChange = (next: boolean) => {
     setCrackle(next);
     saveCrackle(next);
+  };
+  const [artPanel, setArtPanel] = useState<boolean>(() => loadSavedArtPanel());
+  const handleArtPanelChange = (next: boolean) => {
+    setArtPanel(next);
+    saveArtPanel(next);
   };
 
   // Browse is live-only: it needs a connected account.
@@ -135,6 +142,11 @@ export default function Live() {
       content: <CracklePicker on={crackle} onChange={handleCrackleChange} />,
     },
     {
+      id: "artpanel",
+      label: "Art Panel",
+      content: <ArtPanelPicker on={artPanel} onChange={handleArtPanelChange} />,
+    },
+    {
       id: "brightness",
       label: "Brightness",
       content: <DimPicker level={dim} onLevelChange={handleDimChange} />,
@@ -149,68 +161,86 @@ export default function Live() {
       className="stage"
       style={{ ...metalCssVars(metal), ...dimCssVars(dim) } as React.CSSProperties}
     >
-      <DeckScaler extraWidth={TAB_RESERVE}>
-        {(scale) => (
-          // 560-wide relative box = the deck; the LIBRARY/SETTINGS tabs pin to
-          // its right edge and live INSIDE the scaled layer so they stay
-          // attached as the deck shrinks. (Drawers themselves render outside —
-          // they're fixed.)
-          <div style={{ position: "relative", display: "flex", width: 560 }}>
-            <TurntableVisual
-              mode="live"
-              scale={scale}
-              deckWood={wood}
-              cueRequestId={cueRequestId}
-              onCueLand={handleCueLand}
-              crackleOn={crackle}
-              track={spotify.track}
-              isAuthenticated={spotify.isAuthenticated}
-              isConnected={spotify.isConnected}
-              error={spotify.error}
-              onDismissError={spotify.dismissError}
-              notice={spotify.notice}
-              onDismissNotice={spotify.dismissNotice}
-              onTogglePlay={spotify.togglePlay}
-              onSeek={spotify.seek}
-              onPrev={spotify.prevTrack}
-              onNext={spotify.nextTrack}
-              onTransfer={spotify.transferPlayback}
-              onLogin={spotify.login}
-              onLogout={spotify.logout}
-            />
-
-            {/* LIBRARY / SETTINGS: stacked vertical brass tabs on the deck's
-                right edge. Library needs a connected account; Settings is
-                always available. */}
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "100%", // flush against the deck's right edge
-                transform: "translateY(-50%)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              {canBrowse && (
-                <DeckTab
-                  label="▤ Library"
-                  ariaLabel="Open your library"
-                  expanded={browseOpen}
-                  onClick={toggleBrowse}
+      {/* Deck row: the optional art side panel sits LEFT of the deck (the
+          right edge belongs to the tab column + overlays). The panel takes a
+          fixed 300px; DeckScaler's flex cell absorbs the rest, so its measured
+          width — and therefore the deck's scale — adapts automatically. The
+          panel gates itself off below 1100px viewports, toggle or not. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 28,
+          width: "100%",
+        }}
+      >
+        {artPanel && <ArtSidePanel track={spotify.track} wood={wood} />}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <DeckScaler extraWidth={TAB_RESERVE}>
+            {(scale) => (
+              // 560-wide relative box = the deck; the LIBRARY/SETTINGS tabs pin
+              // to its right edge and live INSIDE the scaled layer so they stay
+              // attached as the deck rescales. (Drawers themselves render
+              // outside — they're fixed.)
+              <div style={{ position: "relative", display: "flex", width: 560 }}>
+                <TurntableVisual
+                  mode="live"
+                  scale={scale}
+                  deckWood={wood}
+                  cueRequestId={cueRequestId}
+                  onCueLand={handleCueLand}
+                  crackleOn={crackle}
+                  track={spotify.track}
+                  isAuthenticated={spotify.isAuthenticated}
+                  isConnected={spotify.isConnected}
+                  error={spotify.error}
+                  onDismissError={spotify.dismissError}
+                  notice={spotify.notice}
+                  onDismissNotice={spotify.dismissNotice}
+                  onTogglePlay={spotify.togglePlay}
+                  onSeek={spotify.seek}
+                  onPrev={spotify.prevTrack}
+                  onNext={spotify.nextTrack}
+                  onTransfer={spotify.transferPlayback}
+                  onLogin={spotify.login}
+                  onLogout={spotify.logout}
                 />
-              )}
-              <DeckTab
-                label="⚙ Settings"
-                ariaLabel="Open settings"
-                expanded={settingsOpen}
-                onClick={toggleSettings}
-              />
-            </div>
-          </div>
-        )}
-      </DeckScaler>
+
+                {/* LIBRARY / SETTINGS: stacked vertical brass tabs on the deck's
+                    right edge. Library needs a connected account; Settings is
+                    always available. */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "100%", // flush against the deck's right edge
+                    transform: "translateY(-50%)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 10,
+                  }}
+                >
+                  {canBrowse && (
+                    <DeckTab
+                      label="▤ Library"
+                      ariaLabel="Open your library"
+                      expanded={browseOpen}
+                      onClick={toggleBrowse}
+                    />
+                  )}
+                  <DeckTab
+                    label="⚙ Settings"
+                    ariaLabel="Open settings"
+                    expanded={settingsOpen}
+                    onClick={toggleSettings}
+                  />
+                </div>
+              </div>
+            )}
+          </DeckScaler>
+        </div>
+      </div>
 
       {/* Drawers live OUTSIDE DeckScaler: they're position:fixed, and a CSS
           transform on an ancestor would re-anchor them away from the viewport.
