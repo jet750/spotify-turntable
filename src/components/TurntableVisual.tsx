@@ -335,19 +335,24 @@ function ControlStrip(p: ControlsProps) {
   const canCue = p.armState === "playing" || p.armState === "lifted";
 
   // Press-and-hold ⏭ to scrub forward; a quick tap skips to the next track.
+  // `active` tracks an in-progress press: ffUp/ffCancel are no-ops without it,
+  // so the pointerleave that trails every pointerup (immediately on touch,
+  // whenever the mouse wanders off on desktop) can't fire a second skip.
   const ff = useRef<{
     start: number;
     pos: number;
     held: boolean;
+    active: boolean;
     timer: ReturnType<typeof setTimeout> | null;
     interval: ReturnType<typeof setInterval> | null;
-  }>({ start: 0, pos: 0, held: false, timer: null, interval: null });
+  }>({ start: 0, pos: 0, held: false, active: false, timer: null, interval: null });
 
   const ffDown = () => {
     if (!seekEnabled) return;
     const st = ff.current;
     st.start = Date.now();
     st.held = false;
+    st.active = true;
     st.pos = p.progressMs;
     st.timer = setTimeout(() => {
       st.held = true;
@@ -365,12 +370,26 @@ function ControlStrip(p: ControlsProps) {
     }, 300);
   };
 
-  const ffUp = () => {
+  // Shared teardown of a press. Returns false if there was no live press to
+  // end (stale pointerleave/pointercancel) so the caller skips acting on it.
+  const ffEnd = () => {
     const st = ff.current;
+    if (!st.active) return false;
+    st.active = false;
     if (st.timer) { clearTimeout(st.timer); st.timer = null; }
     if (st.interval) { clearInterval(st.interval); st.interval = null; }
-    if (!st.held) p.onNext(); // short tap = skip track
+    const wasTap = !st.held;
     st.held = false;
+    return wasTap;
+  };
+
+  const ffUp = () => {
+    if (ffEnd()) p.onNext(); // short tap released on the button = skip track
+  };
+
+  // Sliding/canceling off the button ends any scrub but never skips.
+  const ffCancel = () => {
+    ffEnd();
   };
 
   let authLabel = "CONNECT";
@@ -503,7 +522,8 @@ function ControlStrip(p: ControlsProps) {
         <button
           onPointerDown={ffDown}
           onPointerUp={ffUp}
-          onPointerLeave={ffUp}
+          onPointerLeave={ffCancel}
+          onPointerCancel={ffCancel}
           disabled={!seekEnabled}
           aria-label="Next track (hold to fast-forward)"
           title="Tap = next track · hold = fast-forward"
@@ -724,6 +744,25 @@ export default function TurntableVisual({
     ensureLoopRef.current();
   };
 
+  // One press = one skip: next/prev pass through a per-direction cooldown so
+  // nothing — double events, button mashing, repeated media keys — can fire a
+  // second skip inside the window. Every skip path (transport buttons,
+  // keyboard, Media Session) routes through these.
+  const SKIP_COOLDOWN_MS = 500;
+  const lastSkipRef = useRef({ next: -Infinity, prev: -Infinity });
+  const guardedNext = () => {
+    const now = performance.now();
+    if (now - lastSkipRef.current.next < SKIP_COOLDOWN_MS) return;
+    lastSkipRef.current.next = now;
+    onNext();
+  };
+  const guardedPrev = () => {
+    const now = performance.now();
+    if (now - lastSkipRef.current.prev < SKIP_COOLDOWN_MS) return;
+    lastSkipRef.current.prev = now;
+    onPrev();
+  };
+
   // Map the arm's start/pause/seek onto whatever player is wired in.
   const ensurePlay = () => {
     if (!isPlaying) onTogglePlay();
@@ -822,8 +861,8 @@ export default function TurntableVisual({
     start: arm.start,
     stop: arm.stop,
     togglePlay: onTogglePlay,
-    prev: onPrev,
-    next: onNext,
+    prev: guardedPrev,
+    next: guardedNext,
     seek: seekTo,
   };
 
@@ -1367,8 +1406,8 @@ export default function TurntableVisual({
         onStart={arm.start}
         onStop={arm.stop}
         onCue={arm.cue}
-        onNext={onNext}
-        onPrev={onPrev}
+        onNext={guardedNext}
+        onPrev={guardedPrev}
         onSeek={seekTo}
         onTransfer={onTransfer}
         onLogin={onLogin}
