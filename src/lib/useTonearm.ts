@@ -30,6 +30,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // ─── FEEL constants — tune by eye ────────────────────────────────────────────
 // FEEL: tune by eye — arm timing + drop tolerances, all in one place.
 const CUE_FALLBACK_MS = 2600;   // hard cap on a cue swing: if the spring hasn't landed by now (hidden tab), force it
+const RECUE_FALLBACK_MS = 5200; // same cap for a record-change cue, which adds a return-to-rest leg first
+// During a record-change return, hand off to the cue swing once the arm is
+// within this of the rest — the heavy return spring takes seconds to fully
+// settle, and the ceremony doesn't need it to.
+const CUE_CHAIN_DEG = 1.5;
 // How far past the outer groove (in deck px) a release still counts as landing
 // ON the record. Beyond this — or on the rest — the drop is a "take it off".
 const DROP_EDGE_SLOP_PX = 14;
@@ -209,6 +214,9 @@ export function useTonearm({
   const onNeedleDownRef = useRef(onNeedleDown);
   onNeedleDownRef.current = onNeedleDown;
   const pendingLandActionRef = useRef<(() => void) | null>(null);
+  // A record-change cue (cueTo) whose return-to-rest leg is still in flight:
+  // step() chains "returning" into "cueing" once the arm nears the rest.
+  const pendingCueRef = useRef(false);
   // False until the first gesture that puts the needle on the record. Only the
   // FIRST start of a page load gets the ceremonial silent cue; every ordinary
   // resume afterwards starts the audio immediately (Item 3 scoping).
@@ -247,6 +255,14 @@ export function useTonearm({
       }
       const target = targetRef.current;
       const err = target - angleRef.current;
+      // Record-change chain (Item 3): the return leg of a new-record cue hands
+      // off to the cue swing as the arm nears the rest — the heavy return
+      // spring's full settle isn't part of the ceremony.
+      if (s === "returning" && pendingCueRef.current && Math.abs(err) < CUE_CHAIN_DEG) {
+        pendingCueRef.current = false;
+        setState("cueing");
+        return true;
+      }
       if (Math.abs(err) < SETTLE_EPS_DEG && Math.abs(velRef.current) < SETTLE_EPS_VEL) {
         // At rest: snap the sub-epsilon remainder so tracking is exact, and
         // stiffen a finished drop into groove-tracking mode.
@@ -281,6 +297,7 @@ export function useTonearm({
   const start = useCallback(() => {
     userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
+    pendingCueRef.current = false; // a manual START supersedes any pending record-change cue
     setState("cueing");
     if (firstDropDoneRef.current) {
       // Ordinary re-start mid-session: audio rolls while the arm swings over.
@@ -301,14 +318,25 @@ export function useTonearm({
   // as the stylus touches down. The caller is responsible for pausing current
   // audio and zeroing the local clock BEFORE invoking, so the swing is silent
   // and targets the outer groove.
+  //
+  // If the stylus is out over the record (playing/lifted) or mid-return, the
+  // arm first carries it home — changing the record lifts the arm off, like a
+  // real deck — and step() chains into the cue swing near the rest. Starting
+  // the swing from wherever the arm happened to be let a pick land INSTANTLY
+  // whenever the arm already sat near the outer groove (e.g. an album that
+  // just started), which skipped the silent cue entirely.
   const cueTo = useCallback(
     (onLand: () => void) => {
       userInteracted.current = true;
       if (cueTimer.current) clearTimeout(cueTimer.current);
       firstDropDoneRef.current = true;
       pendingLandActionRef.current = onLand;
-      setState("cueing");
-      cueTimer.current = setTimeout(landNow, CUE_FALLBACK_MS);
+      dragging.current = false; // the deck takes the arm over from any drag
+      const cur = stateRef.current;
+      const needsReturn = cur === "playing" || cur === "lifted" || cur === "returning";
+      pendingCueRef.current = needsReturn;
+      setState(needsReturn ? "returning" : "cueing");
+      cueTimer.current = setTimeout(landNow, needsReturn ? RECUE_FALLBACK_MS : CUE_FALLBACK_MS);
     },
     [landNow]
   );
@@ -317,6 +345,7 @@ export function useTonearm({
     userInteracted.current = true;
     if (cueTimer.current) clearTimeout(cueTimer.current);
     pendingLandActionRef.current = null; // an aborted cue must never fire later
+    pendingCueRef.current = false;
     ensurePause();
     seek01(0);
     setState("returning"); // spring carries it home; step() parks it on settle
@@ -384,6 +413,10 @@ export function useTonearm({
       userInteracted.current = true;
       e.preventDefault();
       if (cueTimer.current) clearTimeout(cueTimer.current);
+      // Grabbing the arm cancels an in-flight record-change cue: its deferred
+      // "start the new context" action must never fire under a manual drop.
+      pendingLandActionRef.current = null;
+      pendingCueRef.current = false;
       dragging.current = true;
       // Seed the drag wherever the spring currently has the arm (mid-return
       // catches included) so there's no snap on grab; the raw radius decides
